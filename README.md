@@ -1,0 +1,308 @@
+# MTA Subway Screensaver
+
+A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, recoloured for a black background with dark navy water and dark green parks. Each train is a dot that glides along the track between stations. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead. A magnified view of your home stations and a next-train board sit beside the map.
+
+![The preview app: the full map on the left, the magnified home-station view top right, next trains bottom right](docs/screenshot.png)
+
+The project has two halves:
+
+- **A Python pipeline**, run in Jupyter: `subway_pipeline.ipynb`. It downloads the MTA schedule and map, works out the track geometry, matches every station to its place on the official map, and exports two files: a map PDF and a network description (JSON).
+- **A native Swift app**, in `swift/`. It reads those two files, downloads the live train feeds every 30 seconds, and animates the trains. It builds two things from the same code: a preview app for development and the `.saver` screensaver.
+
+The Python side does the heavy, once-in-a-while work. The Swift side does only what has to happen live, so it uses about 3% of one CPU core.
+
+
+## Current status
+
+| Milestone | State |
+|---|---|
+| M1. The map full screen on black | Done |
+| M2. Live trains as dots, placed identically to the notebook | Done (754 of 754 trips match the notebook, 0.0000 map units apart) |
+| M4 (brought forward). Split and close-up layouts, home-station picker, next-train board, smooth motion | Done in the preview app; motion is being tuned |
+| M3. Installable screensaver: System Settings, Options sheet, clean stop | Done (demo installed 28 October 2026) |
+| Later | Service-status panel; port smooth motion back to the notebook; Windows version |
+
+The notebook walkthrough has covered sections 1 and 2; section 3 is next.
+
+
+## How it works
+
+```
+                 ONCE IN A WHILE (Python, Jupyter)                          LIVE (Swift, every second)
+ ┌──────────────────────────────────────────────────────────────┐   ┌──────────────────────────────────────┐
+ │                                                              │   │                                      │
+ │  MTA static schedule (GTFS zip) ──┐                          │   │  MTA live feeds (8 × GTFS-Realtime)  │
+ │                                   ├─► §2 schedule            │   │        │  every 30 s                 │
+ │  data.ny.gov station list ────────┤   §3 track geometry      │   │        ▼                             │
+ │                                   │   §4 official map match  │   │   FeedClient ──► trips               │
+ │  Official MTA map (vector PDF) ───┘   §5–7 checks + views    │   │        │                             │
+ │                                            │                 │   │        ▼                             │
+ │                                            ▼                 │   │   Locator ──► which trains, where    │
+ │                              §8 export ──► export/map_black.pdf ─┼─► MapDocument (map bitmap)          │
+ │                                        └─► export/network.json ──┼─► SubwayNetwork                     │
+ │                                                              │   │        │                             │
+ └──────────────────────────────────────────────────────────────┘   │        ▼                             │
+                                                                    │   MotionPlanner ──► glide / stop     │
+                                                                    │        │                             │
+                                                                    │        ▼                             │
+                                                                    │   TrainLayers (Core Animation)       │
+                                                                    │   NextTrains  (arrival board)        │
+                                                                    └──────────────────────────────────────┘
+```
+
+The two exported files are the only contract between the halves. The Swift app never reads the schedule zip or the original map; everything it needs is in `export/`.
+
+### Placing a train
+
+The live feeds do not give train positions (there is no GPS). Each trip lists only the stops it has not reached yet, with predicted times. To place a train, the program:
+
+1. Drops trips whose data is more than 5 minutes old.
+2. Finds the stop the train last left. It matches the upcoming stops against the route's known stopping patterns.
+3. Works out how far through the current hop the train is. It uses the predicted arrival time and the scheduled time for that hop.
+4. Puts the dot that far along the track drawn on the official map.
+
+Trains waiting at a terminal are drawn dimmed if they leave within 10 minutes, and hidden otherwise. These rules live in the notebook (§6 `locate`, §8 `locate_from_export`). They are ported exactly to Swift (`Locator.locate`). `tools/compare_swift_python.py` checks the two agree.
+
+### Smooth motion
+
+Real trains move very slowly at map scale: a typical hop is about 37 map units in 90 seconds, under one screen point per second. Moving every dot to its exact position once a second therefore looks frozen. `MotionPlanner` trades a little positional accuracy for motion you can see:
+
+```
+                    time to leave (arrive on time at cruise speed)
+        ┌─────────┐ ─────────────────────────────────────────────► ┌────────────┐
+        │ STOPPED │                                                │ TRAVELLING │
+        │ grey    │ ◄───────────────────────────────────────────── │ white,     │
+        └─────────┘          glide finished: at the station        │ larger     │
+           │   ▲                                                   └────────────┘
+  data says│   │ data says the train is behind us:                        ▲
+  we are   │   │ keep waiting                                             │
+  behind   └───┼──────────────────────────────────────────────────────────┘
+               │   leave now; glide faster (up to the catch-up speed), one hop at a time
+               │
+     data says the train is somewhere unconnected (a reroute, a reassigned trip):
+     fade out, fade in at the new place
+```
+
+- Each hop is one continuous Core Animation glide along the track. It eases out of the station and into the next one, and is never interrupted halfway.
+- Trains glide at about 1.5 map units per second, roughly four times real speed, so a typical hop takes about 25 seconds. A train leaves its station at the moment that makes it arrive at the predicted time, so the extra speed becomes extra waiting at stations.
+- Dots never jump backwards. When fresh data disagrees with the animation, a train that is ahead waits longer, and a train that is behind catches up hop by hop.
+- A moving train is a white dot with a soft glow, about a third larger than a stopped train, which is grey. Parked trains are smaller and darker. Size and colour change together over 0.4 seconds.
+
+### Time-lapse
+
+The time-lapse is a backup for when live data is unavailable, and a testing tool. `TripHistory` records, from every download, when each train reached and left each station (the same method as the timing report below), keeping each trip's stations in order and its times consistent. `TimeLapse` replays the last 30 minutes at 20 times speed: half an hour plays in 90 seconds, then the loop restarts. Every time is known, so each hop is one glide lasting the real hop time divided by 20.
+
+It takes over automatically when every feed fails and at least 5 minutes have been recorded (the history is kept in memory while the app runs); the offline note then reads "Live data unavailable since … · replaying the last 30 min". Live motion resumes as soon as a download succeeds. For testing, Debug > Force Time-lapse (Option-Command-T) or the `--time-lapse` launch option turns it on regardless.
+
+### When a download fails
+
+`FeedCache` (in `FeedClient.swift`) keeps the last good download of each feed. A feed counts as failed on a network error, an HTTP error, unreadable data, or an empty response. When a feed fails, its trains keep following their predicted timetable instead of vanishing. The app retries after 10 seconds instead of 30. Held data is dropped once it is 5 minutes old (the stale limit). When every feed fails, a small note in the bottom-right corner reads "Live data unavailable since" and the time of the last good download.
+
+On live data (95 seconds, 4 feed downloads): about 80 trains are gliding at any moment, the median hop takes 27 seconds, and real jumps are rare. Almost all jumps are parked placeholder dots that the MTA's data reassigns to a train elsewhere.
+
+### Track paths
+
+Each hop is drawn along the route's coloured line on the official map. The PDF draws each colour in several pieces (109 in all), so `mtamap.match.TrackNetwork` joins them: ends that touch, and ends that point straight at each other across a gap (where a line passes under a station's label box). A hop is the shortest route through that network between the two stations' circles. §8 exports every hop's path (`hop_paths` in network.json) so the app draws exactly the same tracks. 1,956 of the 2,084 hops in the stop patterns (94%) follow the track; the rest, about 1.5% of train trips, are drawn as straight lines, mostly around the Atlantic Av-Barclays Ctr transfer box.
+
+The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. `--path-report` lists the remaining straight hops and draws them over the map.
+
+### Timing accuracy
+
+`--timing-report` compares each dot with the real train, using the feeds themselves as the reference. The real arrival is taken from the MTA's first report that the train is standing at the station. The real departure is the last time reported before the station drops off the trip's list. The feeds are read every 15 seconds, so each reference time is good to about 15 seconds.
+
+While a train stands at a station, some lines (the A, C and E feed, for example) keep moving its reported arrival forward to the present. The last reported arrival is therefore really the departure, and it must not be used as the arrival.
+
+Results from 3 minutes on 28 October 2026, afternoon, at the earlier cruise speed of 2.5 (glides of about 13 seconds). At 1.5 the arrivals are unchanged, since a dot always aims for the predicted arrival; departures are about 12 seconds closer to real.
+
+| Measure | Median | Middle 80% | Within 30 s | Within 60 s |
+|---|---|---|---|---|
+| Dot reaches a station vs the real train | 3 s late | 25 s early to 32 s late | 79% | 95% |
+| Dot reaches a station after a catch-up glide | 21 s late | 14 s early to 40 s late | 73% | 99% |
+| Dot leaves a station vs the real train | 42 s late | 29 s early to 94 s late | 31% | 66% |
+
+The dot arrives exactly when the MTA's prediction said it would (0 s difference in every case). All of the arrival error is the error in the MTA's own prediction at the moment the glide began. Departures are late by design: the dot waits at the station and then travels about six times faster than the real train, so it leaves later and arrives on time. In the middle of a hop, the dot is usually still at the previous station or just leaving it while the real train is already on its way.
+
+
+## Folder layout
+
+```
+mta-screensaver/
+├── README.md                  this file
+├── subway_pipeline.ipynb      the pipeline (§1–§9 + two appendices); the reference for all rules
+├── live_demo.ipynb            runs the pipeline and animates trains inline for N seconds (slow, ~2 fps)
+├── fast_demo.py               matplotlib demo (its window does not appear on this Mac; kept for reference)
+├── mtamap/                    reads, restyles and matches the official map PDF
+│   ├── pdfreader.py           minimal PDF parser (incl. RC4 decryption of the MTA file)
+│   ├── pdfdraw.py             draws PDF paths and text with matplotlib
+│   ├── style.py               recolouring for a black background
+│   ├── match.py               matches GTFS stations to the map's route circles; draws hops along the track
+│   └── __init__.py            OfficialMap: station_point, hop_line, station_extent, draw
+├── data/                      downloads and notebook figures (re-creatable)
+│   ├── gtfs_subway.zip        MTA static schedule
+│   ├── subway_diagram.pdf     official MTA map
+│   ├── mta_stations.csv       data.ny.gov station list (uptown/downtown labels, boroughs)
+│   └── *.png                  snapshots from the notebook
+├── export/                    written by §8; bundled into the Swift app at build time
+│   ├── map_black.pdf          the recoloured map (black land, dark water and parks); 1 PDF point = 1 map unit (1656 × 1978)
+│   └── network.json           stations, platforms, routes, stopping patterns, hop times, focus views
+├── swift/                     the macOS app and screensaver (see swift/README.md)
+│   ├── Shared/                code used by both targets
+│   ├── PreviewApp/            the SubwayPreview development app
+│   ├── Saver/                 the SubwaySaver screensaver entry point
+│   ├── SubwaySaver.xcodeproj  generated by tools/gen_xcodeproj.py
+│   └── build/                 build output (safe to delete)
+├── tools/
+│   ├── gen_xcodeproj.py       regenerates the Xcode project file
+│   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
+│   └── gtfs-realtime.desc     feed schema, for regenerating the Swift feed decoder
+├── docs/                      images for this README
+└── archive/                   earlier versions of the notebook
+```
+
+
+## Data sources
+
+| Source | Used for | Key |
+|---|---|---|
+| [MTA GTFS static schedule](https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip) | Stations, stopping patterns, scheduled hop times, track shapes | None |
+| [MTA GTFS-Realtime feeds](https://api.mta.info/) (`api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs…`, 8 feeds) | Live trips and predicted arrivals | None |
+| [Official MTA subway map](https://www.mta.info/map/5256) (vector PDF) | The map itself, and where each station sits on it | None |
+| [data.ny.gov MTA Subway Stations](https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f) | "Uptown" / "Downtown" labels per station, borough | None |
+
+One round of the 8 live feeds is about 140 KB compressed. At one round every 30 seconds, that is about 17 MB per hour while the screensaver runs.
+
+
+## Running it
+
+### The notebook
+
+Open `subway_pipeline.ipynb` in Anaconda Navigator's Jupyter Notebook (the **base** environment, which has every package the notebook needs) and run it top to bottom. Every setting is in the single settings cell in §1. The first run downloads the schedule and the map; later runs reuse them.
+
+To run it non-interactively:
+
+```bash
+~/anaconda3/bin/jupyter nbconvert --to notebook --execute --inplace ~/mta-screensaver/subway_pipeline.ipynb
+```
+
+### The preview app
+
+Build with the scheme (a target build skips the SwiftProtobuf package), then open the app:
+
+```bash
+cd ~/mta-screensaver/swift && xcodebuild -project SubwaySaver.xcodeproj -scheme SubwayPreview -configuration Release -destination 'platform=macOS' -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages build
+```
+
+```bash
+open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwayPreview.app
+```
+
+Or open `swift/SubwaySaver.xcodeproj` in Xcode, choose the SubwayPreview scheme and press Command-R.
+
+The app has two layouts, chosen from the View menu and remembered between runs:
+
+- **Split View** (Command-1): the whole map on the left. On the right, a magnified map of the home stations sits above the next-train board, which is only as tall as its content: three trains each way for one station, two for more.
+- **Close-up** (Command-2): one section of the map fills the window at a readable zoom, centred on the home stations. A small overview of the whole map (top right) outlines the section shown, and the next-train board is a card in the bottom-left corner.
+
+The magnified map's **magnification** is "Fit stations" (framed on your stations) or a fixed 2×, 3×, 4×, 6× or 8×: multiples of the whole map fitted to the screen, so they mean the same on any display. Choose it at the bottom of the tram-button panel; Command-plus and Command-minus step through the choices.
+
+The tram button in the bottom-right corner opens the home-station picker. Your chosen stations (up to four, which is what the board has room for) are listed at the top, in the order the next-train board shows them, with buttons to reorder or remove them; a dot under a line's symbol marks lines serving one of them. Below are a search box, a row of route symbols for browsing one line's stations in order from its northern end, and every station grouped by borough with its route symbols and an Add / Added button. Control-Command-F toggles full screen.
+
+### The screensaver
+
+```bash
+zsh ~/mta-screensaver/tools/install_saver.sh
+```
+
+This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. Its **Options…** sheet sets the layout, home stations and magnification; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
+
+The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`.
+
+### Tests and measurements
+
+All of these run the preview app's executable from Terminal:
+
+```bash
+cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/SubwayPreview.app/Contents/MacOS/SubwayPreview
+```
+
+| Command | What it does |
+|---|---|
+| `$APP --snapshot out.png --live` | Renders the full view with live trains to a PNG, without a window |
+| `$APP --snapshot out.png --live --layout closeUp --home 122,A21` | The same, in a given layout and with given home stations (the saved choices are unchanged) |
+| `$APP --time-lapse-report --record 420 --seconds 60` | Records live history for 7 minutes, replays it, and checks every glide starts where its dot is |
+| `$APP --path-report out` | Checks the track every hop follows; writes `out.png` with straight hops in red |
+| `$APP --picker-snapshot out.png --line A` | Renders the home-station picker (optionally browsing one line) |
+| `swiftc -O tools/test_saver.swift -o /tmp/test_saver && /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver` | Loads the built screensaver as macOS does, runs it on live data, renders it, measures CPU, and checks it stops on `willstop` |
+| `$APP --timing-report --seconds 180` | Compares each dot's arrival at, and departure from, a station with when the real train got there |
+| `$APP --dump-placements out.json --feeds-dir DIR --now UNIXTIME` | Places every trip from saved feeds and writes the positions |
+| `$APP --plan-report --seconds 95` | Runs the motion planner on live data and reports glide speeds, trains in motion, catch-ups and jumps |
+| `$APP --plan-report --simulate-outage gtfs-ace` | The same, with that feed (or `all`) failing after the first download |
+| `open SubwayPreview.app --args --simulate-outage all` | Opens the preview window with every feed failing after the first download, to see the offline note |
+| `~/anaconda3/bin/python ~/mta-screensaver/tools/compare_swift_python.py FEEDS_DIR $APP` | Downloads the feeds once, places trains in both Python and Swift, and compares them train by train |
+
+The status line in the preview app shows the train counts and the app's own CPU use.
+
+
+## Settings worth knowing
+
+| Setting | Where | Default | Effect |
+|---|---|---|---|
+| `STALE_AFTER_S` | notebook §1 (exported) | 300 | Trips with older data are dropped |
+| `PARK_WINDOW_S` | notebook §1 (exported) | 600 | Trains leaving a terminal within this many seconds are shown dimmed |
+| `TRAIN_DOT_UNITS` | notebook §1 (exported) | 6.5 | Train dot size in map units, before on-screen limits |
+| `FOCUS_VIEWS` | notebook §1 (exported) | 5 presets | Named groups of stations for magnified views |
+| `cruiseSpeed` | `swift/Shared/MotionPlanner.swift` | 1.5 | Glide speed in map units per second. Higher means brisker motion and longer station waits; lower keeps dots closer to the real trains mid-hop |
+| `WATER`, `PARKS` | `mtamap/style.py` | dark navy, dark green | Tints for water and parks on the black map (re-run §8 and rebuild after changing) |
+| `catchUpSpeed` | `swift/Shared/MotionPlanner.swift` | 6 | Fastest glide when a train is behind the data |
+| `minTravelSeconds` | `swift/Shared/MotionPlanner.swift` | 4 | Shortest glide, so very short hops do not flick past |
+| `pollInterval` | `swift/Shared/FeedClient.swift` (FeedHub) | 30 | Seconds between feed downloads |
+| `retryInterval` | `swift/Shared/FeedClient.swift` (FeedHub) | 10 | Seconds before retrying after a round in which any feed failed |
+| home stations | tram-button panel, or the screensaver's Options sheet | 79 St (1), 81 St (B, C) | Up to 4 stations, shown in the magnified view and on the next-train board |
+| magnification | tram-button panel, Options sheet, Command-plus / minus | Fit stations | Fit stations, or 2× to 8× the whole map fitted to the screen |
+| layout | View menu (saved) | Split View | Split View or Close-up |
+| `MAP_FIXES` | notebook §1 | 6 stations | Stations the automatic map matching places on the wrong circles: station ID → a point on its correct circles (§4) |
+| time-lapse | automatic when offline; Debug menu to force | off | Backup replay of the last 30 minutes at 20 times speed. `speed`, `window` and `minimumHistory` are in `swift/Shared/TimeLapse.swift` |
+
+Settings marked "exported" take effect in the app only after re-running §8 and rebuilding.
+
+
+## Refreshing the schedule
+
+The MTA republishes the static schedule several times a year. The current export was built from a schedule valid **until 31 October 2026**. To refresh:
+
+1. Run the notebook. When the zip is older than `STATIC_MAX_AGE_DAYS`, §1 downloads a new schedule.
+2. Check the §4 matching report. Every station should still be matched to the map; a new or renamed station would show up here.
+3. Run §8. It re-exports the two files and asserts the export still places trains exactly like §6.
+4. Rebuild the Swift targets so they bundle the new files.
+
+
+## Known limitations and risks
+
+These are the issues most likely to affect how smoothly the app runs, roughly in order of urgency.
+
+1. **The schedule expires on 31 October 2026.** The live feeds keep working afterwards, but any new stopping pattern or reroute in the next schedule is unknown to the app. Trains on such patterns cannot be placed and are hidden. Refresh as described above once the MTA publishes the new file.
+2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which can keep running after the screensaver closes; the saver therefore stops on `com.apple.screensaver.willstop` (tested: 0.01% CPU afterwards). Its behaviour on lock, sleep and wake, and with several displays, has not yet been tested on screen.
+3. **Network and battery while the screensaver runs.** About 17 MB per hour and about 3% of one core. That is fine while the Mac is plugged in. On battery, the app could poll less often or stop when the display sleeps.
+4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner exists only in Swift so far.
+5. **Map gaps.** About 6% of hops (1.5% of trips) are still drawn as straight lines, mostly at the Atlantic Av-Barclays Ctr transfer box. A dot standing at a station covers that route's letter circle.
+6. **No version control.** The project is not in its own git repository, so there is no history to return to if an edit goes wrong. The `archive/` folder holds only earlier notebook versions.
+
+
+## Version control
+
+The project is a private GitHub repository. It holds code only: the MTA's files (schedule, map, station list), the notebook's export and every image of the map are left out (see `.gitignore`), and notebooks are committed without their outputs. After cloning:
+
+1. Set up the notebook filter once (it strips outputs when committing; your local notebooks keep theirs):
+   ```bash
+   git config filter.strip-notebook-outputs.clean "$HOME/anaconda3/bin/jupyter nbconvert --ClearOutputPreprocessor.enabled=True --to=notebook --stdin --stdout --log-level=ERROR" && git config filter.strip-notebook-outputs.smudge cat
+   ```
+2. Run `subway_pipeline.ipynb` top to bottom: it downloads the MTA files into `data/` and writes `export/`.
+3. Build the app or install the screensaver as above.
+
+The README screenshot and the screensaver's thumbnail are local only, since they show MTA artwork.
+
+## Permissions and sharing
+
+The map is MTA artwork. Its own notice says it may not be reproduced without the MTA's written permission, so the app and screensaver built from it are for personal use only. Appendix A of the notebook draws a generated diagram from the schedule alone. That diagram is the shareable fallback if this project is ever distributed.
+
+The schedule and the live feeds are public MTA data and need no key.

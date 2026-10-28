@@ -1,0 +1,318 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 868102A57BDB9C69618DC4ED /* SwiftProtobuf */; };
+		90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 3A6A6B764C87109823AF9CB0 /* SwiftProtobuf */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1C4E0A09308067BF2103BF2E /* SubwayPreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SubwayPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SubwaySaver.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B51D13789FB3FEA0D62449FD /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Shared; path = Shared; sourceTree = "<group>"; };
+		5612E59FC4B72BE063F16B37 /* PreviewApp */ = {isa = PBXFileSystemSynchronizedRootGroup; name = PreviewApp; path = PreviewApp; sourceTree = "<group>"; };
+		8543D41553E53A575CCE7ED3 /* Saver */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Saver; path = Saver; sourceTree = "<group>"; };
+		0BE2EE54693CE23209956F05 /* export */ = {isa = PBXFileSystemSynchronizedRootGroup; name = export; path = ../export; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5E10857BBE0656EE4C10C339 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		094F710C1850499430DB21DD /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8D3FC6DB5D0827F168A73277 = {
+			isa = PBXGroup;
+			children = (
+				B51D13789FB3FEA0D62449FD /* Shared */,
+				5612E59FC4B72BE063F16B37 /* PreviewApp */,
+				8543D41553E53A575CCE7ED3 /* Saver */,
+				0BE2EE54693CE23209956F05 /* export */,
+				1BADDC1D73C1A20F347483E1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1BADDC1D73C1A20F347483E1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1C4E0A09308067BF2103BF2E /* SubwayPreview.app */,
+				11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		02D5EF75D95FCBA94373955A /* SubwayPreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A7830AB248685F2BD3D21B7 /* Build configuration list for PBXNativeTarget "SubwayPreview" */;
+			buildPhases = (
+				242A282DF7ACED89429476A8 /* Sources */,
+				5E10857BBE0656EE4C10C339 /* Frameworks */,
+				EC69307397232E651FE0983D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B51D13789FB3FEA0D62449FD /* Shared */,
+				5612E59FC4B72BE063F16B37 /* PreviewApp */,
+				0BE2EE54693CE23209956F05 /* export */,
+			);
+			name = SubwayPreview;
+			packageProductDependencies = (
+				868102A57BDB9C69618DC4ED /* SwiftProtobuf */,
+			);
+			productName = SubwayPreview;
+			productReference = 1C4E0A09308067BF2103BF2E /* SubwayPreview.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E7BEE490FC945E2C395AC831 /* Build configuration list for PBXNativeTarget "SubwaySaver" */;
+			buildPhases = (
+				6B0E1EB731424F0383902F4F /* Sources */,
+				094F710C1850499430DB21DD /* Frameworks */,
+				E19CD36484D907829B578870 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B51D13789FB3FEA0D62449FD /* Shared */,
+				8543D41553E53A575CCE7ED3 /* Saver */,
+				0BE2EE54693CE23209956F05 /* export */,
+			);
+			name = SubwaySaver;
+			packageProductDependencies = (
+				3A6A6B764C87109823AF9CB0 /* SwiftProtobuf */,
+			);
+			productName = SubwaySaver;
+			productReference = 11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */;
+			productType = "com.apple.product-type.bundle";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+			};
+			buildConfigurationList = 30435AE6E633F256CC883684 /* Build configuration list for PBXProject "SubwaySaver" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8D3FC6DB5D0827F168A73277;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1BADDC1D73C1A20F347483E1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				02D5EF75D95FCBA94373955A /* SubwayPreview */,
+				8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EC69307397232E651FE0983D /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E19CD36484D907829B578870 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		242A282DF7ACED89429476A8 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		6B0E1EB731424F0383902F4F /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		27DCD3D8A80B96BAC7F43628 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C7BE28EC3D46B1B540A12F0B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		B61232496A3AE90B6C5E9D6F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway Preview";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Debug;
+		};
+		B10E94F21B98DA840D591125 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway Preview";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Release;
+		};
+		DD4B21CA91E3A52069C4BFBC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.saver;
+				WRAPPER_EXTENSION = saver;
+				INFOPLIST_KEY_NSPrincipalClass = SubwaySaverView;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway";
+				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
+				LD_RUNPATH_SEARCH_PATHS = "@loader_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Debug;
+		};
+		33959943CA1D1AD83E335927 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.saver;
+				WRAPPER_EXTENSION = saver;
+				INFOPLIST_KEY_NSPrincipalClass = SubwaySaverView;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway";
+				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
+				LD_RUNPATH_SEARCH_PATHS = "@loader_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		30435AE6E633F256CC883684 /* Build configuration list for PBXProject "SubwaySaver" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27DCD3D8A80B96BAC7F43628 /* Debug */,
+				C7BE28EC3D46B1B540A12F0B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A7830AB248685F2BD3D21B7 /* Build configuration list for PBXNativeTarget "SubwayPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B61232496A3AE90B6C5E9D6F /* Debug */,
+				B10E94F21B98DA840D591125 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E7BEE490FC945E2C395AC831 /* Build configuration list for PBXNativeTarget "SubwaySaver" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD4B21CA91E3A52069C4BFBC /* Debug */,
+				33959943CA1D1AD83E335927 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.39.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		868102A57BDB9C69618DC4ED /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		3A6A6B764C87109823AF9CB0 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

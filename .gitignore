@@ -1,0 +1,22 @@
+# Build output and caches
+swift/build/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+*.dSYM/
+
+# MTA files the notebook downloads (schedule, official map, station list) and its figures
+data/
+
+# The notebook's export (map_black.pdf is MTA artwork); re-create it with §8 of subway_pipeline.ipynb
+export/
+
+# Images of the MTA map
+docs/screenshot.png
+swift/Saver/thumbnail*.png
+
+# Earlier notebook versions (they contain rendered map images)
+archive/
+
+# Xcode per-user state
+xcuserdata/

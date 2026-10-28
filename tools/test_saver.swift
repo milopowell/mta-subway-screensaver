@@ -1,0 +1,102 @@
+// Loads the built screensaver the way macOS does and checks it works, without installing it or touching the
+// screen: it runs the saver on live data, renders what it shows to a PNG, measures its CPU use, checks it stops
+// when macOS announces the screensaver is ending, and renders its Options sheet.
+//
+// Build and run (from the mta-screensaver folder):
+//   swiftc -O tools/test_saver.swift -o /tmp/test_saver
+//   /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver_test
+// Writes <out>_screen.png and <out>_options.png.
+
+import AppKit
+import ScreenSaver
+
+func cpuSeconds() -> Double {
+    var ts = timespec()
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts)
+    return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
+}
+
+/// Runs the main loop for `seconds` and returns the CPU used meanwhile, as a percentage of one core.
+func run(_ seconds: Double) -> Double {
+    let start = cpuSeconds()
+    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    return (cpuSeconds() - start) / seconds * 100
+}
+
+func writePNG(_ image: CGImage, _ path: String) {
+    let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
+    try! png.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
+}
+
+let arguments = CommandLine.arguments
+guard arguments.count == 3, let bundle = Bundle(path: arguments[1]) else {
+    print("usage: test_saver <SubwaySaver.saver> <output prefix>")
+    exit(1)
+}
+let out = arguments[2]
+_ = NSApplication.shared
+NSApp.setActivationPolicy(.prohibited)
+
+guard bundle.load(), let saverClass = bundle.principalClass as? ScreenSaverView.Type else {
+    print("FAIL: the bundle didn't load, or its principal class isn't a ScreenSaverView")
+    exit(1)
+}
+print("loaded \(bundle.bundleIdentifier ?? "?"), principal class \(saverClass)")
+
+let size = NSSize(width: 1512, height: 982)
+guard let saver = saverClass.init(frame: NSRect(origin: .zero, size: size), isPreview: false) else {
+    print("FAIL: init(frame:isPreview:) returned nil")
+    exit(1)
+}
+// macOS puts the view in a full-screen window, which lays it out; do the same without a window.
+saver.subviews.first?.frame = saver.bounds
+saver.layoutSubtreeIfNeeded()
+saver.subviews.first?.layoutSubtreeIfNeeded()
+saver.startAnimation()
+print("started; waiting for the first downloads...")
+_ = run(15)
+let cpuRunning = run(30)
+print(String(format: "CPU while running: %.1f%% of one core", cpuRunning))
+
+// What it shows: the layer tree (map, trains), then the AppKit-drawn views (next-train board) on top.
+let scale: CGFloat = 2
+let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+                    bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+ctx.scaleBy(x: scale, y: scale)
+let content = saver.subviews.first!
+content.layer?.render(in: ctx)
+for view in content.subviews where !view.isHidden {
+    if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+        view.cacheDisplay(in: view.bounds, to: rep)
+        if let image = rep.cgImage { ctx.draw(image, in: view.frame) }
+    }
+}
+writePNG(ctx.makeImage()!, out + "_screen.png")
+
+// macOS announces the end of the screensaver; everything should stop.
+DistributedNotificationCenter.default().postNotificationName(.init("com.apple.screensaver.willstop"), object: nil,
+                                                             userInfo: nil, deliverImmediately: true)
+_ = run(2)
+let cpuStopped = run(20)
+print(String(format: "CPU after 'will stop': %.2f%% of one core", cpuStopped))
+
+// The Options sheet.
+if saver.hasConfigureSheet, let sheet = saver.configureSheet, let view = sheet.contentView {
+    _ = run(0.5)  // let the sheet finish filling its station list
+    view.appearance = NSAppearance(named: .darkAqua)
+    view.wantsLayer = true
+    view.layer?.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
+    view.frame = NSRect(origin: .zero, size: view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance { view.cacheDisplay(in: view.bounds, to: rep) }
+        writePNG(rep.cgImage!, out + "_options.png")
+    }
+    print("Options sheet: \(Int(view.fittingSize.width))×\(Int(view.fittingSize.height)) pt")
+} else {
+    print("FAIL: no Options sheet")
+}
+print(cpuStopped < 0.5 ? "PASS: stops when the screensaver ends" : "FAIL: still busy after 'will stop'")
+exit(0)
