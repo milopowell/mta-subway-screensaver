@@ -213,7 +213,7 @@ The tram button in the bottom-right corner opens the home-station picker. Your c
 zsh ~/mta-screensaver/tools/install_saver.sh
 ```
 
-This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. Its **Options…** sheet sets the layout, home stations and magnification; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
+This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. The screensaver always shows the close-up: the magnified map filling the screen, centred on your stations. Its **Options…** sheet sets those stations (up to four) and the magnification; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
 
 The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`.
 

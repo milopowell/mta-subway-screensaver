@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds the screensaver (Release) and installs it for this user, in ~/Library/Screen Savers.
-# Afterwards choose "Subway" in System Settings > Screen Saver (Options… sets your stations and layout).
+# Afterwards choose "Subway" in System Settings > Screen Saver (Options… sets the focus stations and magnification).
 #
 #   zsh ~/mta-screensaver/tools/install_saver.sh
 set -e
@@ -18,4 +18,4 @@ cp -R build/DerivedData/Build/Products/Release/SubwaySaver.saver "$target/"
 killall legacyScreenSaver 2>/dev/null || true
 
 echo "Installed $target/SubwaySaver.saver"
-echo "Choose \"Subway\" in System Settings > Screen Saver. Options… sets your stations, layout and magnification."
+echo "Choose \"Subway\" in System Settings > Screen Saver. Options… sets the stations it focuses on and the magnification."
