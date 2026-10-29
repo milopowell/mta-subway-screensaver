@@ -1,15 +1,15 @@
 # MTA Subway Screensaver
 
-A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, recolored for a black background with dark navy water and dark green parks. Each train is a dot that glides along the track between stations. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead. A magnified view of your home stations and a next-train board sit beside the map.
+A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, either recolored for a black background (dark navy water, dark green parks) or in the paper map's own colors, with automatic switching between the two. Each train is a dot that glides along the track between stations and slips under the lines that pass over it. The screensaver shows a magnified section of the map centered on your home stations, with a next-train board on glass in one corner and a small overview of the whole map in another. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead.
 
-![The preview app: the full map on the left, the magnified home-station view top right, next trains bottom right](docs/screenshot.png)
+There are no pictures here, since every view of the app shows the MTA map, which stays out of the repository (see "Permissions and sharing"). Build it to see it.
 
 The project has two halves:
 
-- **A Python pipeline**, run in Jupyter: `subway_pipeline.ipynb`. It downloads the MTA schedule and map, works out the track geometry, matches every station to its place on the official map, and exports two files: a map PDF and a network description (JSON).
-- **A native Swift app**, in `swift/`. It reads those two files, downloads the live train feeds every 30 seconds, and animates the trains. It builds two things from the same code: a preview app for development and the `.saver` screensaver.
+- **A Python pipeline**, run in Jupyter: `subway_pipeline.ipynb`. It downloads the MTA schedule and map, works out the track geometry, matches every station to its place on the official map, and exports three files: the map as two PDFs (dark and light) and a network description (JSON).
+- **A native Swift app**, in `swift/`. It reads those files, downloads the live train feeds every 30 seconds, and animates the trains. It builds three things from the same code: the `.saver` screensaver, a preview app for development, and a sandbox app for sending trains by hand.
 
-The Python side does the heavy, once-in-a-while work. The Swift side does only what has to happen live, so it uses about 3% of one CPU core.
+The Python side does the heavy, once-in-a-while work. The Swift side does only what has to happen live, so the screensaver uses about 1 to 2% of one CPU core.
 
 
 ## Current status
@@ -165,7 +165,6 @@ mta-screensaver/
 │   ├── gen_xcodeproj.py       regenerates the Xcode project file
 │   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
 │   └── gtfs-realtime.desc     feed schema, for regenerating the Swift feed decoder
-├── docs/                      images for this README
 └── archive/                   earlier versions of the notebook
 ```
 
@@ -367,7 +366,7 @@ The project is a private GitHub repository. It holds code only: the MTA's files 
 2. Run `subway_pipeline.ipynb` top to bottom: it downloads the MTA files into `data/` and writes `export/`.
 3. Build the app or install the screensaver as above.
 
-The README screenshot and the screensaver's thumbnail are local only, since they show MTA artwork.
+The screensaver's thumbnail is local only, since it shows MTA artwork.
 
 ## Permissions and sharing
 
