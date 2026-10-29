@@ -4,9 +4,9 @@ import QuartzCore
 /// One round dot per train, inside `container` (one of these per map panel).
 ///
 /// * **Moving:** white with a soft glow, and the largest dot, so the eye goes to what is moving.
-/// * **Stopped** at a station: a smaller grey dot. **Parked:** a smaller, darker dot.
+/// * **Stopped** at a station: a smaller gray dot. **Parked:** a smaller, darker dot.
 ///
-/// Changing between them (size and colour) is animated over `morphSeconds`, so nothing pops. A hop is a
+/// Changing between them (size and color) is animated over `morphSeconds`, so nothing pops. A hop is a
 /// single Core Animation glide along the track (`.travel` commands): the dot moves continuously, speeding
 /// up out of the station and slowing into the next.
 final class TrainLayers {
@@ -31,7 +31,7 @@ final class TrainLayers {
     /// - Parameters:
     ///   - toView: converts map units to this panel's points.
     ///   - dot: base marker size in points.
-    ///   - animated: false for snapshots (no animations: travelling trains are drawn where they are now).
+    ///   - animated: false for snapshots (no animations: traveling trains are drawn where they are now).
     func apply(_ commands: [TrainCommand], toView: (CGPoint) -> CGPoint, dot: CGFloat, animated: Bool = true) {
         if dot != self.dot {
             self.dot = dot
@@ -127,21 +127,21 @@ final class TrainLayers {
         layer.shadowPath = CGPath(ellipseIn: bounds, transform: nil)  // a known shape is much cheaper to shadow
     }
 
-    /// Moving / stopped / parked: size and colour change together over `morphSeconds`.
+    /// Moving / stopped / parked: size and color change together over `morphSeconds`.
     private func setLook(_ look: TrainLook, key: String, on layer: CALayer, animated: Bool) {
-        let colour: CGColor
+        let color: CGColor
         switch look {
-        case .moving: colour = NSColor.white.cgColor
-        case .stopped: colour = NSColor(white: 0.62, alpha: 1).cgColor
-        case .parked: colour = NSColor(white: 0.38, alpha: 1).cgColor
+        case .moving: color = NSColor.white.cgColor
+        case .stopped: color = NSColor(white: 0.62, alpha: 1).cgColor
+        case .parked: color = NSColor(white: 0.38, alpha: 1).cgColor
         }
-        if looks[key] == look, layer.backgroundColor == colour { return }
+        if looks[key] == look, layer.backgroundColor == color { return }
         looks[key] = look
         CATransaction.begin()
         CATransaction.setAnimationDuration(animated ? morphSeconds : 0)
         if !animated { CATransaction.setDisableActions(true) }
         size(layer, look)
-        layer.backgroundColor = colour
+        layer.backgroundColor = color
         layer.shadowOpacity = look == .moving ? 0.9 : 0
         layer.zPosition = look == .moving ? 2 : (look == .stopped ? 1 : 0)  // moving trains on top
         CATransaction.commit()

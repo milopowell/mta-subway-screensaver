@@ -13,7 +13,7 @@ import Foundation
 /// A train that leaves the feed altogether (its trip ended) is credited with the stations it was last seen at.
 ///
 /// Visits are kept in the order the trip lists its stops, and their times are made consistent: the MTA's times for
-/// neighbouring stations sometimes contradict each other (a last prediction made up to a download earlier can be
+/// neighboring stations sometimes contradict each other (a last prediction made up to a download earlier can be
 /// later than the next station's actual arrival). Times only ever move earlier, from the newest visit backwards,
 /// so each hop takes at least `minimumHop` seconds; the newest times (usually "stopped at" reports) are trusted.
 final class TripHistory {

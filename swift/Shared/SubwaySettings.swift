@@ -10,7 +10,7 @@ final class SubwaySettings {
     enum Layout: String {
         /// The whole map, with a magnified map of the home stations and the next-train board beside it.
         case split
-        /// One section of the map filling the screen at a readable zoom, centred on the home stations, with the
+        /// One section of the map filling the screen at a readable zoom, centered on the home stations, with the
         /// next-train board and a small overview map as corner cards.
         case closeUp
     }

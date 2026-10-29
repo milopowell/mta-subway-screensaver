@@ -90,7 +90,7 @@ if let output = value(after: "--picker-snapshot") {
 }
 
 if let output = value(after: "--path-report") {
-    // Checks the track every hop is drawn along (Locator.hopLine), for every pair of neighbouring stations in every
+    // Checks the track every hop is drawn along (Locator.hopLine), for every pair of neighboring stations in every
     // stop pattern: hops that fall back to a straight line, and hops whose path is much longer than the direct
     // distance (wandering along the wrong stretch of line). Writes <output>.png: the map with straight hops in red
     // and long ones in yellow, and prints the worst, weighted by how many trips a day use them.
@@ -134,9 +134,9 @@ if let output = value(after: "--path-report") {
     ctx.draw(map, in: CGRect(origin: .zero, size: size))
     ctx.scaleBy(x: scale, y: scale)
     ctx.translateBy(x: -document.bounds.minX, y: -document.bounds.minY)
-    for (hop, colour) in straight.map({ ($0, CGColor(red: 1, green: 0.1, blue: 0.1, alpha: 0.9)) })
+    for (hop, color) in straight.map({ ($0, CGColor(red: 1, green: 0.1, blue: 0.1, alpha: 0.9)) })
         + long.map({ ($0, CGColor(red: 1, green: 0.9, blue: 0, alpha: 0.9)) }) {
-        ctx.setStrokeColor(colour)
+        ctx.setStrokeColor(color)
         ctx.setLineWidth(3)
         ctx.addLines(between: hop.line.points)
         ctx.strokePath()

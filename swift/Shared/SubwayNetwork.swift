@@ -46,7 +46,7 @@ struct SubwayNetwork: Decodable {
         let name: String
         let complex: String
         let routes: [String]
-        let centre: [Double]  // [x, y]
+        let center: [Double]  // [x, y]
         let extent: [Double]  // [xmin, ymin, xmax, ymax] of its circles
         let points: [String: [Double]]  // route → where that route's train is drawn here
         let northLabel: String  // MTA's label for trains toward the N platform, e.g. "Uptown", "Manhattan"
@@ -54,7 +54,7 @@ struct SubwayNetwork: Decodable {
         let borough: String?
 
         enum CodingKeys: String, CodingKey {
-            case name, complex, routes, centre, extent, points
+            case name, complex, routes, center, extent, points
             case northLabel = "north_label", southLabel = "south_label", borough
         }
     }
@@ -72,7 +72,7 @@ struct SubwayNetwork: Decodable {
     let stations: [String: Station]
     let patterns: [Pattern]  // busiest first (the order matters for tie-breaks, as in the notebook)
     let hopTimes: [String: Double]  // "fromPlatform>toPlatform" → scheduled seconds
-    let routeLines: [String: [[[Double]]]]  // line colour → polylines → points [x, y]
+    let routeLines: [String: [[[Double]]]]  // line color → polylines → points [x, y]
     /// "route|fromStation|toStation" → the track a train follows on that hop, computed by the notebook (§8) so
     /// both draw exactly the same path. Hops that can't follow the track are missing (use a straight line).
     let hopPaths: [String: [[Double]]]?

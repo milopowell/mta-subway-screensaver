@@ -34,7 +34,7 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `Polyline.swift` | Geometry along a track line |
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
-| `RouteSymbols.swift` | Route symbols (coloured circles, diamonds for express variants), shared by the picker |
+| `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker |
 | `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification |
 
 ## Building and running

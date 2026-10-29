@@ -2,7 +2,7 @@ import CoreGraphics
 
 /// Which part of the map to show, framed to the screen's shape.
 enum Viewport {
-    /// Grows `content` (a region of the map) on its short side, keeping its centre, until its width ÷ height
+    /// Grows `content` (a region of the map) on its short side, keeping its center, until its width ÷ height
     /// equals `aspect`. The result shows all of `content`, with extra map (or black) around it.
     ///
     /// This is the same framing the notebook's `focus_box` does (§7), without the padding step.

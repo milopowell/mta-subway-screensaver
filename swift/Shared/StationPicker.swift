@@ -66,7 +66,7 @@ final class StationPickerController: NSViewController, NSTableViewDataSource, NS
     override func loadView() {
         let title = NSTextField(labelWithString: "Home stations")
         title.font = .boldSystemFont(ofSize: 13)
-        let hint = label("The magnified map centres on these, and the next-train board lists their trains.", size: 11,
+        let hint = label("The magnified map centers on these, and the next-train board lists their trains.", size: 11,
                          color: .secondaryLabelColor)
 
         yours.orientation = .vertical
@@ -282,7 +282,7 @@ final class StationPickerController: NSViewController, NSTableViewDataSource, NS
             var stations = pattern.stops.compactMap { network.platforms[$0] }.filter { network.stations[$0] != nil }
             // Read every pattern north to south (map y grows northwards), so branches join in the same direction.
             if let first = stations.first.flatMap({ network.stations[$0] }), let last = stations.last.flatMap({ network.stations[$0] }),
-               first.centre[1] < last.centre[1] {
+               first.center[1] < last.center[1] {
                 stations.reverse()
             }
             for id in stations where !out.contains(id) { out.append(id) }

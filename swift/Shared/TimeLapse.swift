@@ -97,9 +97,9 @@ final class TimeLapse {
         return commands
     }
 
-    /// The track between two recorded stations: the route's line if they're neighbours, else the hops along one
+    /// The track between two recorded stations: the route's line if they're neighbors, else the hops along one
     /// of its stop patterns (a station can be missing from the record), else a straight line. It always starts and
-    /// ends exactly at the two station points, where the dot stands before and after (the coloured line can pass
+    /// ends exactly at the two station points, where the dot stands before and after (the colored line can pass
     /// a few map units from a station's circle).
     private func hopPath(route: String, from a: String, to b: String) -> Polyline {
         let start = locator.stationPoint(route: route, station: a), end = locator.stationPoint(route: route, station: b)

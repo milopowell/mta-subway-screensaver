@@ -1,10 +1,10 @@
 import AppKit
 
-/// MTA route symbols (a coloured circle with the route's letter or number; a diamond for express variants such as
+/// MTA route symbols (a colored circle with the route's letter or number; a diamond for express variants such as
 /// 6X), drawn in a row. Used by the station picker; the next-train board draws the same symbols.
 final class RouteSymbolsView: NSView {
     var routes: [String] = [] { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
-    /// route → (background colour, letter colour), from network.json.
+    /// route → (background color, letter color), from network.json.
     var colors: [String: (NSColor, NSColor)] = [:]
     var diameter: CGFloat = 16 { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
     private let gap: CGFloat = 3
@@ -14,7 +14,7 @@ final class RouteSymbolsView: NSView {
         ["GS": "S", "FS": "S", "H": "S", "SI": "SIR"][route] ?? String(route.prefix(1))
     }
 
-    /// Draws one symbol centred on `center` (in a flipped or unflipped view alike).
+    /// Draws one symbol centered on `center` (in a flipped or unflipped view alike).
     static func draw(_ route: String, center: CGPoint, diameter: CGFloat, colors: [String: (NSColor, NSColor)]) {
         let (fill, ink) = colors[route] ?? (.gray, .white)
         let r = diameter / 2
@@ -79,17 +79,17 @@ final class RouteButton: NSButton {
     override var isFlipped: Bool { true }  // the symbol at the top, the dot below
 
     override func draw(_ dirtyRect: NSRect) {
-        let centre = CGPoint(x: bounds.midX, y: 13)
+        let center = CGPoint(x: bounds.midX, y: 13)
         if isChosen {
             NSColor.controlAccentColor.setStroke()
-            let ring = NSBezierPath(ovalIn: CGRect(x: centre.x - 12, y: centre.y - 12, width: 24, height: 24))
+            let ring = NSBezierPath(ovalIn: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24))
             ring.lineWidth = 2
             ring.stroke()
         }
-        RouteSymbolsView.draw(route, center: centre, diameter: 18, colors: colors)
+        RouteSymbolsView.draw(route, center: center, diameter: 18, colors: colors)
         if servesYours {
             NSColor.controlAccentColor.setFill()
-            NSBezierPath(ovalIn: CGRect(x: centre.x - 2, y: 26, width: 4, height: 4)).fill()
+            NSBezierPath(ovalIn: CGRect(x: center.x - 2, y: 26, width: 4, height: 4)).fill()
         }
     }
 }

@@ -1,6 +1,6 @@
 # MTA Subway Screensaver
 
-A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, recoloured for a black background with dark navy water and dark green parks. Each train is a dot that glides along the track between stations. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead. A magnified view of your home stations and a next-train board sit beside the map.
+A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, recolored for a black background with dark navy water and dark green parks. Each train is a dot that glides along the track between stations. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead. A magnified view of your home stations and a next-train board sit beside the map.
 
 ![The preview app: the full map on the left, the magnified home-station view top right, next trains bottom right](docs/screenshot.png)
 
@@ -70,8 +70,8 @@ Real trains move very slowly at map scale: a typical hop is about 37 map units i
 ```
                     time to leave (arrive on time at cruise speed)
         ┌─────────┐ ─────────────────────────────────────────────► ┌────────────┐
-        │ STOPPED │                                                │ TRAVELLING │
-        │ grey    │ ◄───────────────────────────────────────────── │ white,     │
+        │ STOPPED │                                                │ TRAVELING  │
+        │ gray    │ ◄───────────────────────────────────────────── │ white,     │
         └─────────┘          glide finished: at the station        │ larger     │
            │   ▲                                                   └────────────┘
   data says│   │ data says the train is behind us:                        ▲
@@ -86,7 +86,7 @@ Real trains move very slowly at map scale: a typical hop is about 37 map units i
 - Each hop is one continuous Core Animation glide along the track. It eases out of the station and into the next one, and is never interrupted halfway.
 - Trains glide at about 1.5 map units per second, roughly four times real speed, so a typical hop takes about 25 seconds. A train leaves its station at the moment that makes it arrive at the predicted time, so the extra speed becomes extra waiting at stations.
 - Dots never jump backwards. When fresh data disagrees with the animation, a train that is ahead waits longer, and a train that is behind catches up hop by hop.
-- A moving train is a white dot with a soft glow, about a third larger than a stopped train, which is grey. Parked trains are smaller and darker. Size and colour change together over 0.4 seconds.
+- A moving train is a white dot with a soft glow, about a third larger than a stopped train, which is gray. Parked trains are smaller and darker. Size and color change together over 0.4 seconds.
 
 ### Time-lapse
 
@@ -102,7 +102,7 @@ On live data (95 seconds, 4 feed downloads): about 80 trains are gliding at any 
 
 ### Track paths
 
-Each hop is drawn along the route's coloured line on the official map. The PDF draws each colour in several pieces (109 in all), so `mtamap.match.TrackNetwork` joins them: ends that touch, and ends that point straight at each other across a gap (where a line passes under a station's label box). A hop is the shortest route through that network between the two stations' circles. §8 exports every hop's path (`hop_paths` in network.json) so the app draws exactly the same tracks. 1,956 of the 2,084 hops in the stop patterns (94%) follow the track; the rest, about 1.5% of train trips, are drawn as straight lines, mostly around the Atlantic Av-Barclays Ctr transfer box.
+Each hop is drawn along the route's colored line on the official map. The PDF draws each color in several pieces (109 in all), so `mtamap.match.TrackNetwork` joins them: ends that touch, and ends that point straight at each other across a gap (where a line passes under a station's label box). A hop is the shortest route through that network between the two stations' circles. §8 exports every hop's path (`hop_paths` in network.json) so the app draws exactly the same tracks. 1,956 of the 2,084 hops in the stop patterns (94%) follow the track; the rest, about 1.5% of train trips, are drawn as straight lines, mostly around the Atlantic Av-Barclays Ctr transfer box.
 
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. `--path-report` lists the remaining straight hops and draws them over the map.
 
@@ -134,7 +134,7 @@ mta-screensaver/
 ├── mtamap/                    reads, restyles and matches the official map PDF
 │   ├── pdfreader.py           minimal PDF parser (incl. RC4 decryption of the MTA file)
 │   ├── pdfdraw.py             draws PDF paths and text with matplotlib
-│   ├── style.py               recolouring for a black background
+│   ├── style.py               recoloring for a black background
 │   ├── match.py               matches GTFS stations to the map's route circles; draws hops along the track
 │   └── __init__.py            OfficialMap: station_point, hop_line, station_extent, draw
 ├── data/                      downloads and notebook figures (re-creatable)
@@ -143,7 +143,7 @@ mta-screensaver/
 │   ├── mta_stations.csv       data.ny.gov station list (uptown/downtown labels, boroughs)
 │   └── *.png                  snapshots from the notebook
 ├── export/                    written by §8; bundled into the Swift app at build time
-│   ├── map_black.pdf          the recoloured map (black land, dark water and parks); 1 PDF point = 1 map unit (1656 × 1978)
+│   ├── map_black.pdf          the recolored map (black land, dark water and parks); 1 PDF point = 1 map unit (1656 × 1978)
 │   └── network.json           stations, platforms, routes, stopping patterns, hop times, focus views
 ├── swift/                     the macOS app and screensaver (see swift/README.md)
 │   ├── Shared/                code used by both targets
@@ -201,7 +201,7 @@ Or open `swift/SubwaySaver.xcodeproj` in Xcode, choose the SubwayPreview scheme 
 The app has two layouts, chosen from the View menu and remembered between runs:
 
 - **Split View** (Command-1): the whole map on the left. On the right, a magnified map of the home stations sits above the next-train board, which is only as tall as its content: three trains each way for one station, two for more.
-- **Close-up** (Command-2): one section of the map fills the window at a readable zoom, centred on the home stations. A small overview of the whole map (top right) outlines the section shown, and the next-train board is a card in the bottom-left corner.
+- **Close-up** (Command-2): one section of the map fills the window at a readable zoom, centered on the home stations. A small overview of the whole map (top right) outlines the section shown, and the next-train board is a card in the bottom-left corner.
 
 The magnified map's **magnification** is "Fit stations" (framed on your stations) or a fixed 2×, 3×, 4×, 6× or 8×: multiples of the whole map fitted to the screen, so they mean the same on any display. Choose it at the bottom of the tram-button panel; Command-plus and Command-minus step through the choices.
 
@@ -213,7 +213,7 @@ The tram button in the bottom-right corner opens the home-station picker. Your c
 zsh ~/mta-screensaver/tools/install_saver.sh
 ```
 
-This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. The screensaver always shows the close-up: the magnified map filling the screen, centred on your stations. Its **Options…** sheet sets those stations (up to four) and the magnification; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
+This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. The screensaver always shows the close-up: the magnified map filling the screen, centered on your stations. Its **Options…** sheet sets those stations (up to four) and the magnification; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
 
 The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`.
 
@@ -281,7 +281,7 @@ The MTA republishes the static schedule several times a year. The current export
 These are the issues most likely to affect how smoothly the app runs, roughly in order of urgency.
 
 1. **The schedule expires on 31 October 2026.** The live feeds keep working afterwards, but any new stopping pattern or reroute in the next schedule is unknown to the app. Trains on such patterns cannot be placed and are hidden. Refresh as described above once the MTA publishes the new file.
-2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which can keep running after the screensaver closes; the saver therefore stops on `com.apple.screensaver.willstop` (tested: 0.01% CPU afterwards). Its behaviour on lock, sleep and wake, and with several displays, has not yet been tested on screen.
+2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which can keep running after the screensaver closes; the saver therefore stops on `com.apple.screensaver.willstop` (tested: 0.01% CPU afterwards). Its behavior on lock, sleep and wake, and with several displays, has not yet been tested on screen.
 3. **Network and battery while the screensaver runs.** About 17 MB per hour and about 3% of one core. That is fine while the Mac is plugged in. On battery, the app could poll less often or stop when the display sleeps.
 4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner exists only in Swift so far.
 5. **Map gaps.** About 6% of hops (1.5% of trips) are still drawn as straight lines, mostly at the Atlantic Av-Barclays Ctr transfer box. A dot standing at a station covers that route's letter circle.

@@ -71,7 +71,7 @@ def prepare(drawing):
     for p in drawing["paths"]:
         p["lo"], p["hi"] = bbox(p["segs"])
         p["curves"] = any(k == "C" for k, _ in p["segs"])
-    # A white stroke immediately followed by a coloured stroke along the same path is a "casing":
+    # A white stroke immediately followed by a colored stroke along the same path is a "casing":
     # the thin white outline that separates parallel route lines on the white paper map.
     paths = drawing["paths"]
     for i, p in enumerate(paths):
@@ -133,8 +133,8 @@ def style_path(p, bullets):
             is_mask = p.get("mask") or (not p["curves"] and max(w, h) >= 40)  # see prepare()
             fc = (0, 0, 0) if is_mask else (1, 1, 1)  # masks behind labels -> black; letters stay white
         elif is_neutral(c) and lum(c) < 0.2:
-            centre = (lo + hi) / 2
-            if is_station_circle(p) or inside_any(centre, bullets):
+            center = (lo + hi) / 2
+            if is_station_circle(p) or inside_any(center, bullets):
                 fc = c  # station circles and letters on yellow bullets stay black
             else:
                 fc = (1, 1, 1)  # black label ink -> white
@@ -197,4 +197,4 @@ def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0):
                 fontsize=t["size"] * text_scale, color=c, family=["Helvetica", "Arial", "DejaVu Sans"],
                 ha="left", va="baseline", zorder=zorder + 1,
                 clip_on=True)  # matplotlib doesn't clip text by default; without this, labels spill into
-                               # neighbouring panels when several zoomed views share one figure
+                               # neighboring panels when several zoomed views share one figure

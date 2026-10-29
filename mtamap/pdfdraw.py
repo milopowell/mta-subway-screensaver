@@ -77,7 +77,7 @@ class Interpreter:
         return res
 
     def color_of(self, cs_num, comps):
-        """Convert a colour in colour space object cs_num to RGB (0..1)."""
+        """Convert a color in color space object cs_num to RGB (0..1)."""
         if cs_num is None:
             return tuple(comps[:3]) if len(comps) >= 3 else (comps[0],) * 3
         d = self.pdf.dict_of(cs_num)
@@ -222,7 +222,7 @@ class Interpreter:
                         mm = re.search(rb"/Matrix\s*\[([^\]]*)\]", d)
                         mtx = list(map(float, mm.group(1).split())) if mm else [1, 0, 0, 1, 0, 0]
                         sub_res = self.resources(d)
-                        # a form without its own colour spaces uses its parent's
+                        # a form without its own color spaces uses its parent's
                         for k, v in res["cs"].items():
                             sub_res["cs"].setdefault(k, v)
                         self.run(self.pdf.stream(num), sub_res, mat_mul(mtx, gs["ctm"]), tag=f"form{num}")

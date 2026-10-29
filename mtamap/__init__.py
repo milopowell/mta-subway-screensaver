@@ -1,4 +1,4 @@
-"""The official MTA subway diagram, recoloured for a black background, with GTFS stations located on it.
+"""The official MTA subway diagram, recolored for a black background, with GTFS stations located on it.
 
 Personal use only: the diagram states it "may not be reproduced without written permission from the
 Metropolitan Transportation Authority". Don't redistribute the map or anything rendered from it.
@@ -41,10 +41,10 @@ class OfficialMap:
         seqs = [(p.route_id, [parent_of[s] for s in p.stops]) for p in patterns.itertuples()]
 
         # 1. route lines and station circles
-        self.lines, _ = M.route_colour_lines(self.drawing, COLOR)
+        self.lines, _ = M.route_color_lines(self.drawing, COLOR)
         self.circles = M.station_circles(self.drawing, self.lines)
         labels = M.labels_index(self.drawing)
-        # 2. first match using line colours only
+        # 2. first match using line colors only
         clusters = M.cluster_circles(self.circles)
         assigned, _ = M.match_stations(clusters, ids, xy, names, groups, labels)
         n1 = len(assigned)
@@ -60,16 +60,16 @@ class OfficialMap:
         # 5. separate stations that ended up sharing a circle group with a station they don't transfer to
         separated = M.separate_shared(assigned, self.clusters, seqs, served, complex_of or {}) if complex_of else 0
         # 6. manual fixes
-        centres = np.array([c["centre"] for c in self.clusters])
+        centers = np.array([c["center"] for c in self.clusters])
         for station, point in (fixes or {}).items():
-            assigned[station] = int(np.linalg.norm(centres - np.asarray(point), axis=1).argmin())
+            assigned[station] = int(np.linalg.norm(centers - np.asarray(point), axis=1).argmin())
 
         self.assigned, self.names, self.served = assigned, names, served
         self._hop_cache = {}
         self.report = {
             "paths": len(it.paths), "labels": len(it.texts), "station circles": len(self.circles),
             "circle groups": len(self.clusters), "glyphs learned": len(self.glyph_route),
-            "matched (colours only)": n1, "matched (with glyphs)": n2,
+            "matched (colors only)": n1, "matched (with glyphs)": n2,
             "filled along routes": len(added) + len(added2), "order fixes": moves, "separated": separated,
             "manual fixes": len(fixes or {}),
             "matched (final)": len(assigned), "GTFS stations": len(ids),
@@ -83,7 +83,7 @@ class OfficialMap:
         return set(self.glyph_route.get(self.circles[i]["glyph"], ()))
 
     def station_point(self, route, station):
-        """Where `route`'s circle is drawn at `station` (falls back to the station's centre)."""
+        """Where `route`'s circle is drawn at `station` (falls back to the station's center)."""
         k = self.assigned.get(station)
         if k is None:
             return None
@@ -92,8 +92,8 @@ class OfficialMap:
         if not own:
             own = [i for i in members if self.COLOR.get(route) in self.circles[i]["lines"]]
         if own:
-            return self.circles[own[0]]["centre"]
-        return self.clusters[k]["centre"]
+            return self.circles[own[0]]["center"]
+        return self.clusters[k]["center"]
 
     CIRCLE_RADIUS = 4.1  # station circles are 8.2 map units across
 
@@ -103,12 +103,12 @@ class OfficialMap:
         k = self.assigned.get(station)
         if k is None:
             return None
-        pts = np.array([self.circles[i]["centre"] for i in self.clusters[k]["members"]])
+        pts = np.array([self.circles[i]["center"] for i in self.clusters[k]["members"]])
         lo, hi = pts.min(axis=0) - self.CIRCLE_RADIUS, pts.max(axis=0) + self.CIRCLE_RADIUS
         return (lo[0], lo[1], hi[0], hi[1])
 
     def hop_line(self, route, a, b):
-        """The stretch of `route`'s coloured line from station a to station b (straight line if it can't follow it)."""
+        """The stretch of `route`'s colored line from station a to station b (straight line if it can't follow it)."""
         key = (route, a, b)
         if key not in self._hop_cache:
             pa, pb = self.station_point(route, a), self.station_point(route, b)

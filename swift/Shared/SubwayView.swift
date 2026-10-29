@@ -353,7 +353,7 @@ final class SubwayView: NSView {
     }
 
     /// The part of the map the magnified view shows in a panel of `size` points: `magnification` times the whole-map
-    /// scale, or (automatic) framed on the home stations at a scale kept within `autoRange` (multiples); centred on
+    /// scale, or (automatic) framed on the home stations at a scale kept within `autoRange` (multiples); centered on
     /// the home stations and kept inside the map. Also records the magnification shown.
     private func magnifiedRegion(size: CGSize, document: MapDocument, autoRange: ClosedRange<Double>) -> CGRect {
         let map = document.bounds
@@ -412,7 +412,7 @@ final class SubwayView: NSView {
 
         if closeUp {
             // One section of the map fills the window at the chosen magnification (automatic: framed on the home
-            // stations, between 2× and 4×), centred on them. The overview (top right) outlines the section shown.
+            // stations, between 2× and 4×), centered on them. The overview (top right) outlines the section shown.
             zoomPanel?.root.isHidden = false
             zoomPanel?.layout(frame: bounds, showing: magnifiedRegion(size: bounds.size, document: document, autoRange: 2...4),
                               scale: scale)
@@ -426,11 +426,12 @@ final class SubwayView: NSView {
                              showing: document.bounds, scale: scale)
             fullPanel.setOutline(zoomPanel?.mapRect)
 
-            let boardWidth = min(max(w * 0.32, 300), 440)
+            // A narrow card that can grow tall: large symbols and minutes, readable from across a room.
+            let boardWidth = min(max(w * 0.22, 250), 330)
             let boardBottom: CGFloat = showsStatus ? 32 : margin  // above the status line
             nextTrains.isHidden = false
             nextTrains.frame = CGRect(x: margin, y: boardBottom, width: boardWidth,
-                                      height: boardHeight(width: boardWidth, maxHeight: h * 0.45))
+                                      height: boardHeight(width: boardWidth, maxHeight: h * 0.7))
         } else if split {
             let fullWidth = min(h * mapAspect, w * 0.6)
             let gap: CGFloat = 2  // thin black divider
@@ -588,7 +589,7 @@ final class SubwayView: NSView {
 }
 
 extension NSColor {
-    /// A colour from "#RRGGBB".
+    /// A color from "#RRGGBB".
     convenience init(hex: String) {
         let digits = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         let value = UInt32(digits, radix: 16) ?? 0x888888

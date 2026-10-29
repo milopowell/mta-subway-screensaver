@@ -40,10 +40,10 @@ def norm_name(s):
     return re.sub(r"[^a-z0-9]", "", s)
 
 
-def route_colour_lines(drawing, COLOR):
-    """{colour hex: [polyline, ...]} for the thick route strokes, pairing map colours with GTFS colours one-to-one."""
+def route_color_lines(drawing, COLOR):
+    """{color hex: [polyline, ...]} for the thick route strokes, pairing map colors with GTFS colors one-to-one."""
     groups = sorted(set(COLOR.values()))
-    grey = COLOR["L"]
+    gray = COLOR["L"]
     strokes = []
     for p in drawing["paths"]:
         s = p["stroke"]
@@ -52,21 +52,21 @@ def route_colour_lines(drawing, COLOR):
         if O.is_neutral(s) and not 0.35 < O.lum(s[:3]) < 0.75:
             continue
         strokes.append((tuple(round(x, 2) for x in s[:3]), p))
-    map_colours = sorted({c for c, _ in strokes if not O.is_neutral(c)})
-    # cluster nearly identical map colours
+    map_colors = sorted({c for c, _ in strokes if not O.is_neutral(c)})
+    # cluster nearly identical map colors
     reps = []
-    for c in map_colours:
+    for c in map_colors:
         if not any(np.linalg.norm(np.array(c) - np.array(r)) < 0.08 for r in reps):
             reps.append(c)
-    colour_groups = [g for g in groups if g != grey]
-    grgb = np.array([[int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)] for h in colour_groups])
+    color_groups = [g for g in groups if g != gray]
+    grgb = np.array([[int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)] for h in color_groups])
     cost = np.array([[np.linalg.norm(np.array(r) - g) for g in grgb] for r in reps])
     rows, cols = linear_sum_assignment(cost)
-    rep_to_group = {reps[r]: colour_groups[c] for r, c in zip(rows, cols)}
+    rep_to_group = {reps[r]: color_groups[c] for r, c in zip(rows, cols)}
 
     def group_of(c):
         if O.is_neutral(c):
-            return grey
+            return gray
         r = min(reps, key=lambda r: np.linalg.norm(np.array(r) - np.array(c)))
         return rep_to_group.get(r)
 
@@ -79,7 +79,7 @@ def route_colour_lines(drawing, COLOR):
 
 
 def station_circles(drawing, lines):
-    """Dark circles = one per (station, route stopping there). Returns dicts with centre, touching line colours
+    """Dark circles = one per (station, route stopping there). Returns dicts with center, touching line colors
     and a glyph signature (the white letter/number drawn inside, identical for every circle of one route)."""
     trees = {}
     for gname, Ls in lines.items():
@@ -92,8 +92,8 @@ def station_circles(drawing, lines):
             if key not in seen:  # the PDF stacks some circles several times on the same spot
                 seen.add(key)
                 circ.append(p)
-    centres = np.array([(p["lo"] + p["hi"]) / 2 for p in circ])
-    ctree = cKDTree(centres)
+    centers = np.array([(p["lo"] + p["hi"]) / 2 for p in circ])
+    ctree = cKDTree(centers)
     glyph_parts = defaultdict(list)
     for p in drawing["paths"]:
         f = p["fill"]
@@ -107,14 +107,14 @@ def station_circles(drawing, lines):
                     pts.append(v)
                 elif k == "C":
                     pts += list(v)
-            rel = np.round((np.array(pts) - centres[i]) / 0.3).astype(int)
+            rel = np.round((np.array(pts) - centers[i]) / 0.3).astype(int)
             glyph_parts[i].append(tuple(map(tuple, rel)))
     circles = []
     for i, p in enumerate(circ):
-        c = centres[i]
+        c = centers[i]
         touching = frozenset(g for g, t in trees.items() if t.query(c)[0] <= 3.5)
         sig = tuple(sorted(set(glyph_parts.get(i, []))))
-        circles.append({"centre": c, "lines": touching, "glyph": sig})
+        circles.append({"center": c, "lines": touching, "glyph": sig})
     return circles
 
 
@@ -160,7 +160,7 @@ def learn_glyphs(circles, clusters, assigned, served_trips, COLOR):
     score = np.array([[fam_votes[f].get(r, 0.0) for r in route_keys] for f in fams])
     rows, cs = linear_sum_assignment(-score)  # one glyph family per route
     fam_route = {fams[i]: route_keys[j] for i, j in zip(rows, cs) if score[i, j] > 0.3}
-    # leftover families (rare variants) go to their clear favourite
+    # leftover families (rare variants) go to their clear favorite
     for f in fams:
         if f not in fam_route and fam_votes[f]:
             r, n = fam_votes[f].most_common(1)[0]
@@ -175,7 +175,7 @@ def learn_glyphs(circles, clusters, assigned, served_trips, COLOR):
 
 
 def cluster_circles(circles, gap=14.5, glyph_route=None, COLOR=None):
-    pts = np.array([c["centre"] for c in circles])
+    pts = np.array([c["center"] for c in circles])
     pairs = cKDTree(pts).query_pairs(gap, output_type="ndarray")
     from scipy.sparse import coo_matrix
     n = len(pts)
@@ -196,7 +196,7 @@ def cluster_circles(circles, gap=14.5, glyph_route=None, COLOR=None):
             else:
                 for gname in circles[i]["lines"]:
                     groups[gname] += 1
-        out.append({"members": members, "centre": pts[members].mean(axis=0), "groups": groups, "routes": routes})
+        out.append({"members": members, "center": pts[members].mean(axis=0), "groups": groups, "routes": routes})
     return out
 
 
@@ -230,10 +230,10 @@ def labels_index(drawing):
 
 def match_stations(clusters, station_ids, station_xy, station_name, station_groups, label_index, rounds=4,
                    station_routes=None, COLOR=None):
-    """Assign each GTFS station to a circle cluster. A cluster can host one station per colour group it contains."""
-    centres = np.array([c["centre"] for c in clusters])
-    cols = [(k, g) for k, c in enumerate(clusters) for g in c["groups"]]  # one slot per (cluster, colour group)
-    slot_tree = cKDTree(centres[[k for k, _ in cols]])
+    """Assign each GTFS station to a circle cluster. A cluster can host one station per color group it contains."""
+    centers = np.array([c["center"] for c in clusters])
+    cols = [(k, g) for k, c in enumerate(clusters) for g in c["groups"]]  # one slot per (cluster, color group)
+    slot_tree = cKDTree(centers[[k for k, _ in cols]])
 
     def label_hits(sid):
         out = list(label_index.get(norm_name(station_name[sid]), []))
@@ -242,17 +242,17 @@ def match_stations(clusters, station_ids, station_xy, station_name, station_grou
                 out += label_index.get(norm_name(part), [])
         return out
 
-    # confident anchors: unique names with one label and a cluster of the right colour next to it
+    # confident anchors: unique names with one label and a cluster of the right color next to it
     name_count = Counter(norm_name(n) for n in station_name.values())
     src, dst = [], []
     for i, sid in enumerate(station_ids):
         hits = label_index.get(norm_name(station_name[sid]), [])
         if name_count[norm_name(station_name[sid])] == 1 and len(hits) == 1:
             near = [k for k, c in enumerate(clusters) if set(c["groups"]) & station_groups[sid]
-                    and np.linalg.norm(c["centre"] - hits[0]) < 45]
+                    and np.linalg.norm(c["center"] - hits[0]) < 45]
             if near:
-                k = min(near, key=lambda k: np.linalg.norm(clusters[k]["centre"] - hits[0]))
-                src.append(station_xy[i]); dst.append(clusters[k]["centre"])
+                k = min(near, key=lambda k: np.linalg.norm(clusters[k]["center"] - hits[0]))
+                src.append(station_xy[i]); dst.append(clusters[k]["center"])
     src, dst = np.array(src), np.array(dst)
     mu, sd = station_xy.mean(axis=0), station_xy.std(axis=0)
     assigned = {}
@@ -271,29 +271,29 @@ def match_stations(clusters, station_ids, station_xy, station_name, station_grou
                 k, gname = cols[j]
                 if gname not in station_groups[sid]:
                     continue
-                c = np.linalg.norm(centres[k] - pred[i])
+                c = np.linalg.norm(centers[k] - pred[i])
                 if labs:
-                    dl = min(np.linalg.norm(centres[k] - L) for L in labs)
+                    dl = min(np.linalg.norm(centers[k] - L) for L in labs)
                     c = (0.15 * min(c, 150) + 0.5 * dl) if dl < 45 else (0.5 * c + 45)
                 else:
                     c += 15
-                # a cluster carrying exactly this station's colours is a better fit
+                # a cluster carrying exactly this station's colors is a better fit
                 c += 4 * len(set(clusters[k]["groups"]) ^ station_groups[sid])
                 if station_routes is not None and clusters[k]["routes"]:
-                    on_my_colours = {r for r in clusters[k]["routes"] if COLOR.get(r) in station_groups[sid]}
-                    c += 40 * len(on_my_colours - station_routes[sid])  # map says a route stops here that doesn't
-                    c += 6 * len(station_routes[sid] - on_my_colours)  # part-time routes may lack a circle
+                    on_my_colors = {r for r in clusters[k]["routes"] if COLOR.get(r) in station_groups[sid]}
+                    c += 40 * len(on_my_colors - station_routes[sid])  # map says a route stops here that doesn't
+                    c += 6 * len(station_routes[sid] - on_my_colors)  # part-time routes may lack a circle
                 cost[i, j] = c
         rows, cs = linear_sum_assignment(cost)
         assigned = {station_ids[i]: cols[j][0] for i, j in zip(rows, cs) if cost[i, j] < BIG}
         good = [(i, cols[j][0]) for i, j in zip(rows, cs) if cost[i, j] < 25]
         src = np.array([station_xy[i] for i, _ in good])
-        dst = np.array([centres[k] for _, k in good])
+        dst = np.array([centers[k] for _, k in good])
     return assigned, pred
 
 
 class TrackNetwork:
-    """One colour's drawn track pieces joined into a network, so a hop can follow the line even where the PDF draws
+    """One color's drawn track pieces joined into a network, so a hop can follow the line even where the PDF draws
     it in several pieces (at curves, junctions, and where a line passes under a station's transfer box).
 
     Pieces are joined where an end of one touches another piece (within `join` map units: most meet exactly), and
@@ -378,7 +378,7 @@ class TrackNetwork:
         """Shortest path along the network from near p_a to near p_b, as a list of points, or None.
 
         Each point snaps to every piece within `max_snap`; snapping further away costs `snap_weight` per unit, so the
-        path keeps to the station's own line where same-colour lines run side by side.
+        path keeps to the station's own line where same-color lines run side by side.
         """
         def snaps(q):
             out = []
@@ -431,7 +431,7 @@ class TrackNetwork:
         return [tuple(map(float, q)) for q in path[::-1]]
 
 
-_networks = {}  # id(polylines) → (polylines, TrackNetwork): one network per colour's list of pieces
+_networks = {}  # id(polylines) → (polylines, TrackNetwork): one network per color's list of pieces
 
 
 def track_network(polylines):
@@ -444,7 +444,7 @@ def track_network(polylines):
 
 
 def hop_line(p_a, p_b, polylines, max_snap=14.0):
-    """Line between two map points that follows the drawn track (`polylines`: one colour's pieces) when both points
+    """Line between two map points that follows the drawn track (`polylines`: one color's pieces) when both points
     sit on it, joining pieces where the PDF splits the line. Returns (LineString, followed); a straight line and
     False when the track can't be followed or the path would wander far more than the straight distance."""
     straight = LineString([p_a, p_b])
@@ -458,12 +458,12 @@ def hop_line(p_a, p_b, polylines, max_snap=14.0):
 
 
 def complete_chains(assigned, clusters, patterns_seq, station_routes, max_step=140):
-    """Fill in unmatched stations by walking along each route from its matched neighbours:
+    """Fill in unmatched stations by walking along each route from its matched neighbors:
     the next stop is the nearest cluster carrying this route's circle that nobody on this route owns yet."""
     owner = defaultdict(set)  # cluster -> routes already claimed there
     for sid, k in assigned.items():
         owner[k] |= station_routes[sid]
-    centres = np.array([c["centre"] for c in clusters])
+    centers = np.array([c["center"] for c in clusters])
     added = {}
     changed = True
     while changed:
@@ -472,11 +472,11 @@ def complete_chains(assigned, clusters, patterns_seq, station_routes, max_step=1
             for direction in (seq, seq[::-1]):
                 for a, b in zip(direction, direction[1:]):
                     if a in assigned and b not in assigned and b not in added:
-                        start = centres[assigned[a] if a in assigned else added[a]]
+                        start = centers[assigned[a] if a in assigned else added[a]]
                         cands = [k for k, c in enumerate(clusters) if route in c["routes"] and route not in owner[k]
-                                 and np.linalg.norm(centres[k] - start) < max_step]
+                                 and np.linalg.norm(centers[k] - start) < max_step]
                         if cands:
-                            k = min(cands, key=lambda k: np.linalg.norm(centres[k] - start))
+                            k = min(cands, key=lambda k: np.linalg.norm(centers[k] - start))
                             added[b] = k
                             assigned[b] = k
                             owner[k] |= station_routes[b]
@@ -499,7 +499,7 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
     keeps the plan whose circles best carry each station's routes. Changes `assigned` in place; returns how many
     stations moved.
     """
-    centres = np.array([c["centre"] for c in clusters])
+    centers = np.array([c["center"] for c in clusters])
     routes_of = [{_route_class(r) for r in c["routes"]} for c in clusters]
     served = {s: {_route_class(r) for r in rs} for s, rs in station_routes.items()}
 
@@ -515,16 +515,16 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
                 partners |= served.get(t, set())
         return len(want - have) + 0.5 * len(have - want - partners)
 
-    neighbours = defaultdict(set)
+    neighbors = defaultdict(set)
     for _, seq in patterns_seq:
         for a, b in zip(seq, seq[1:]):
             if a != b:
-                neighbours[a].add(b)
-                neighbours[b].add(a)
+                neighbors[a].add(b)
+                neighbors[b].add(a)
 
     def expected(s, where):
-        near = [where[n] for n in neighbours[s] if n in where]
-        return centres[near].mean(axis=0) if near else None
+        near = [where[n] for n in neighbors[s] if n in where]
+        return centers[near].mean(axis=0) if near else None
 
     def conflicts(where):
         holders = defaultdict(list)
@@ -535,7 +535,7 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
 
     def cost(plan, where):
         """How much worse (positive) or better (negative) `plan` makes the matching: the circles' routes, how far
-        each station sits from where its neighbours along the line suggest, how far stations move, and conflicts."""
+        each station sits from where its neighbors along the line suggest, how far stations move, and conflicts."""
         after = dict(where)
         after.update(plan)
         total = 0.0
@@ -543,8 +543,8 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
             total += mismatch(s, k, after) - mismatch(s, where[s], where)
             e_new, e_old = expected(s, after), expected(s, where)
             if e_new is not None and e_old is not None:
-                total += (np.linalg.norm(centres[k] - e_new) - np.linalg.norm(centres[where[s]] - e_old)) / 25
-            total += np.linalg.norm(centres[k] - centres[where[s]]) / 60  # moving far needs a good reason
+                total += (np.linalg.norm(centers[k] - e_new) - np.linalg.norm(centers[where[s]] - e_old)) / 25
+            total += np.linalg.norm(centers[k] - centers[where[s]]) / 60  # moving far needs a good reason
         return total + 3 * (len(conflicts(after)) - len(conflicts(where)))  # a resolved conflict is worth a lot
 
     moved = 0
@@ -558,12 +558,12 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
         for k, holders in bad.items():
             for s in holders:
                 def targets(x):
-                    """Groups station x may finish in: unused ones near it or near where its neighbours suggest,
+                    """Groups station x may finish in: unused ones near it or near where its neighbors suggest,
                     or any group of its own transfer complex."""
                     own = {assigned[y] for y in assigned if y != x and complex_of.get(y, y) == complex_of.get(x, x)}
                     e = expected(x, assigned)
-                    near = [f for f in free if np.linalg.norm(centres[f] - centres[assigned[x]]) <= max_reach
-                            or (e is not None and np.linalg.norm(centres[f] - e) <= max_reach)]
+                    near = [f for f in free if np.linalg.norm(centers[f] - centers[assigned[x]]) <= max_reach
+                            or (e is not None and np.linalg.norm(centers[f] - e) <= max_reach)]
                     return near + sorted(own)
                 plans = [{s: f} for f in targets(s)]
                 for _, seq in patterns_seq:
@@ -591,14 +591,14 @@ def separate_shared(assigned, clusters, patterns_seq, station_routes, complex_of
 
 
 def refine(assigned, clusters, patterns_seq, station_routes, station_name, label_index, COLOR, rounds=4):
-    """Local clean-up: swap neighbours or move a station to an unclaimed circle of its route when that makes
+    """Local clean-up: swap neighbors or move a station to an unclaimed circle of its route when that makes
     every route through it shorter (stations should appear in order along their lines), without fighting a label."""
-    centres = np.array([c["centre"] for c in clusters])
-    neighbours = defaultdict(set)
+    centers = np.array([c["center"] for c in clusters])
+    neighbors = defaultdict(set)
     for _, seq in patterns_seq:
         for a, b in zip(seq, seq[1:]):
-            neighbours[a].add(b)
-            neighbours[b].add(a)
+            neighbors[a].add(b)
+            neighbors[b].add(a)
     labels = {}
     for sid in assigned:
         hits = list(label_index.get(norm_name(station_name[sid]), []))
@@ -607,29 +607,29 @@ def refine(assigned, clusters, patterns_seq, station_routes, station_name, label
                 hits += label_index.get(norm_name(part), [])
         labels[sid] = hits
 
-    def colours(sid):
+    def colors(sid):
         return {COLOR[r] for r in station_routes[sid] if r in COLOR}
 
     def fits(sid, k):
         c = clusters[k]
-        return bool(colours(sid) & set(c["groups"])) and (not c["routes"] or bool(station_routes[sid] & c["routes"]))
+        return bool(colors(sid) & set(c["groups"])) and (not c["routes"] or bool(station_routes[sid] & c["routes"]))
 
     def cost(sid, k, where):
-        c = sum(np.linalg.norm(centres[k] - centres[where[n]]) for n in neighbours[sid] if n in where and n != sid)
+        c = sum(np.linalg.norm(centers[k] - centers[where[n]]) for n in neighbors[sid] if n in where and n != sid)
         if labels.get(sid):
-            c += 60 * (min(np.linalg.norm(centres[k] - L) for L in labels[sid]) > 45)
+            c += 60 * (min(np.linalg.norm(centers[k] - L) for L in labels[sid]) > 45)
         return c
 
-    def claimed(k, colour, where):
-        return any(where[s] == k and colour in colours(s) for s in where)
+    def claimed(k, color, where):
+        return any(where[s] == k and color in colors(s) for s in where)
 
     moves = 0
     for _ in range(rounds):
         changed = False
         for a in list(assigned):
             ka = assigned[a]
-            # swaps with a neighbour
-            for b in neighbours[a]:
+            # swaps with a neighbor
+            for b in neighbors[a]:
                 if b not in assigned:
                     continue
                 kb = assigned[b]
@@ -641,14 +641,14 @@ def refine(assigned, clusters, patterns_seq, station_routes, station_name, label
                     ka = kb
                     changed = True; moves += 1
             # moves to an unclaimed cluster of this station's routes
-            near = set(cKDTree(centres).query_ball_point(centres[ka], 120))
-            for n in neighbours[a]:
+            near = set(cKDTree(centers).query_ball_point(centers[ka], 120))
+            for n in neighbors[a]:
                 if n in assigned:
-                    near |= set(cKDTree(centres).query_ball_point(centres[assigned[n]], 120))
+                    near |= set(cKDTree(centers).query_ball_point(centers[assigned[n]], 120))
             for k in near:
                 if k == ka or not fits(a, k) or not clusters[k]["routes"] & station_routes[a]:
                     continue
-                if any(claimed(k, col, assigned) for col in colours(a)):
+                if any(claimed(k, col, assigned) for col in colors(a)):
                     continue
                 trial = dict(assigned); trial[a] = k
                 if cost(a, k, trial) < cost(a, ka, assigned) - 8:

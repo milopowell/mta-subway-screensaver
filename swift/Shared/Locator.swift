@@ -47,7 +47,7 @@ final class Locator {
     /// platform → preceding platforms on any route, with trip counts, in first-seen order
     /// (first-seen order reproduces Python's Counter.most_common tie-break).
     private var prevAny: [String: [(stop: String, trips: Int)]] = [:]
-    /// line colour → its polylines.
+    /// line color → its polylines.
     private let lines: [String: [Polyline]]
     /// (route, from station, to station) → the hop's line and whether it follows the drawn route line.
     private var hopCache: [String: (line: Polyline, followed: Bool)] = [:]
@@ -97,14 +97,14 @@ final class Locator {
         return best
     }
 
-    /// Same as omap.station_point(): the route's circle at the station, else the station's centre.
+    /// Same as omap.station_point(): the route's circle at the station, else the station's center.
     func stationPoint(route: String, station: String) -> CGPoint {
         let s = net.stations[station]!
-        return CGPoint(s.points[route] ?? s.centre)
+        return CGPoint(s.points[route] ?? s.center)
     }
 
     /// The track a train follows from station a to b: the path the notebook exported (`hop_paths`, routed along
-    /// the joined pieces of the route's coloured line, as locate_from_export reads it). For the rare hop that isn't
+    /// the joined pieces of the route's colored line, as locate_from_export reads it). For the rare hop that isn't
     /// exported: the stretch of a single piece of the line between the two stations, or a straight line.
     func hopLine(route: String, from a: String, to b: String) -> (line: Polyline, followed: Bool) {
         let key = "\(route)|\(a)|\(b)"

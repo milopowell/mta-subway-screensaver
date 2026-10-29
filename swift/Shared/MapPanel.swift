@@ -5,7 +5,7 @@ import QuartzCore
 /// own trains. The full map and the magnified view are two of these.
 ///
 /// Layers, back to front: map bitmap → trains → outline (optional: marks another panel's region).
-/// Trains are drawn by TrainLayers: white dots while moving, smaller grey dots while stopped.
+/// Trains are drawn by TrainLayers: white dots while moving, smaller gray dots while stopped.
 final class MapPanel {
     let root = CALayer()
     private let mapLayer = CALayer()
@@ -23,7 +23,7 @@ final class MapPanel {
 
     init(document: MapDocument) {
         self.document = document
-        root.masksToBounds = true  // trains outside the region are clipped, not drawn over neighbours
+        root.masksToBounds = true  // trains outside the region are clipped, not drawn over neighbors
         root.backgroundColor = NSColor.black.cgColor
         mapLayer.contentsGravity = .resize
         outline.fillColor = nil

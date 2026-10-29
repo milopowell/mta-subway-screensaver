@@ -4,8 +4,8 @@ import Foundation
 /// How a train dot looks. Always the same size, so nothing jumps when a train stops or starts.
 enum TrainLook {
     case moving  // bright white with a soft glow
-    case stopped  // grey: standing at a station
-    case parked  // dim grey: finished its run, or about to start one
+    case stopped  // gray: standing at a station
+    case parked  // dim gray: finished its run, or about to start one
 }
 
 /// What a train's dot should do, as decided by MotionPlanner. Positions and paths are in map units.
@@ -21,12 +21,12 @@ enum TrainCommand {
 
 /// Turns each train's predicted timetable into smooth, believable motion.
 ///
-/// Each train is either **stopped** at a station or **travelling** one hop. A hop is handed to Core
+/// Each train is either **stopped** at a station or **traveling** one hop. A hop is handed to Core
 /// Animation as a single animation along the track (see `TrainLayers`), so the dot moves continuously
 /// with no steps. The planner checks every train once a second and only acts at decision points:
 ///
 /// * **Departing.** A stopped train sets off when its next hop must start so that it arrives at the
-///   predicted time while travelling at about `cruiseSpeed` (faster than real trains, so motion is visible).
+///   predicted time while traveling at about `cruiseSpeed` (faster than real trains, so motion is visible).
 ///   The extra time is spent waiting at the station, so arrival times still match the predictions.
 /// * **Arriving.** When a hop's animation ends, the train is stopped at that station.
 /// * **Ahead of the predictions** (we arrived before the data says the train does): it simply waits longer.
@@ -43,7 +43,7 @@ final class MotionPlanner {
     /// Shortest a hop's glide may be, so short hops don't flick past.
     var minTravelSeconds: Double = 4
 
-    /// Counters, for checking behaviour (e.g. from the preview app's --plan-report).
+    /// Counters, for checking behavior (e.g. from the preview app's --plan-report).
     struct Stats { var travels = 0, catchUps = 0, teleports = 0, waitsAhead = 0, teleportReasons: [String: Int] = [:] }
     private(set) var stats = Stats()
 
@@ -60,7 +60,7 @@ final class MotionPlanner {
 
     private enum Phase {
         case stopped(station: String?, point: CGPoint, look: TrainLook)
-        case travelling(leg: Locator.Leg, start: Double, duration: Double, path: [CGPoint])
+        case traveling(leg: Locator.Leg, start: Double, duration: Double, path: [CGPoint])
     }
     private var phases: [String: Phase] = [:]
     private let locator: Locator
@@ -69,11 +69,11 @@ final class MotionPlanner {
         self.locator = locator
     }
 
-    /// How many trains are travelling / stopped right now (for the status line).
+    /// How many trains are traveling / stopped right now (for the status line).
     var counts: (moving: Int, stopped: Int) {
         var moving = 0, stopped = 0
         for phase in phases.values {
-            if case .travelling = phase { moving += 1 } else { stopped += 1 }
+            if case .traveling = phase { moving += 1 } else { stopped += 1 }
         }
         return (moving, stopped)
     }
@@ -132,7 +132,7 @@ final class MotionPlanner {
             let rest = line.piece(from: CGFloat(done) * line.length, to: line.length)
             return travel(key, leg: current, path: rest.points, duration: max(current.arrive - now, 1), now: now)
 
-        case .travelling(let leg, let start, let duration, _)?:
+        case .traveling(let leg, let start, let duration, _)?:
             if now < start + duration { return [] }  // still gliding: never interrupt a hop
             // Arrived: now stopped at the station; decide what's next in the same tick.
             phases[key] = .stopped(station: leg.to, point: stationPoint(leg, at: leg.to), look: .stopped)
@@ -141,7 +141,7 @@ final class MotionPlanner {
 
         case .stopped(var station, let point, _)?:
             if station == nil {
-                // A parked train (or one that had no timeline) isn't tied to a station yet: recognise the station
+                // A parked train (or one that had no timeline) isn't tied to a station yet: recognize the station
                 // from where its dot is, so it simply sets off from there instead of fading out and back in.
                 func near(_ s: String, _ leg: Locator.Leg) -> Bool {
                     let p = stationPoint(leg, at: s)
@@ -209,7 +209,7 @@ final class MotionPlanner {
     private func travel(_ key: String, leg: Locator.Leg, path: [CGPoint], duration: Double, now: Double,
                         catchUp: Bool = false) -> [TrainCommand] {
         stats.travels += 1
-        // Start and end exactly at the station dots: the coloured line can pass a few map units from a station's
+        // Start and end exactly at the station dots: the colored line can pass a few map units from a station's
         // circle, and the dot stands at the circle before and after the glide (otherwise it would snap).
         var path = path
         if leg.from != leg.to {
@@ -221,7 +221,7 @@ final class MotionPlanner {
         }
         glideLog?.append(Glide(key: key, from: leg.from, to: leg.to, start: now, end: now + duration,
                                predictedArrival: leg.arrive, catchUp: catchUp))
-        phases[key] = .travelling(leg: leg, start: now, duration: duration, path: path)
+        phases[key] = .traveling(leg: leg, start: now, duration: duration, path: path)
         return [.travel(key: key, path: path, duration: duration)]
     }
 
@@ -232,13 +232,13 @@ final class MotionPlanner {
     }
 
     /// Commands that recreate every train's current state from scratch: used after the view is resized, when
-    /// animations must be restarted in the new coordinates. Travelling trains continue from where they are.
+    /// animations must be restarted in the new coordinates. Traveling trains continue from where they are.
     func resync(now: Double) -> [TrainCommand] {
         phases.compactMap { key, phase -> TrainCommand? in
             switch phase {
             case .stopped(_, let point, let look):
                 return .place(key: key, point: point, look: look)
-            case .travelling(_, let start, let duration, let path):
+            case .traveling(_, let start, let duration, let path):
                 let t = min(max((now - start) / duration, 0), 1)
                 let line = Polyline(path)
                 let rest = line.piece(from: CGFloat(MotionPlanner.easeInOut(t)) * line.length, to: line.length)

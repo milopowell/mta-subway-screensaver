@@ -3,7 +3,6 @@ import AppKit
 /// One upcoming train at a station.
 struct Arrival {
     let route: String
-    let destination: String  // the station where this trip ends
     let minutes: Double  // from now
 }
 
@@ -31,9 +30,7 @@ struct StationBoard {
                 guard let first = trip.upcoming.first, first.time >= now - network.settings.staleAfterS,
                       let stop = trip.upcoming.first(where: { $0.stop == platform }), stop.time >= now - 30
                 else { continue }
-                let last = trip.upcoming.last.flatMap { network.platforms[$0.stop] }
-                let destination = last.flatMap { network.stations[$0]?.name } ?? "—"
-                out.append(Arrival(route: trip.routeID, destination: destination, minutes: (stop.time - now) / 60))
+                out.append(Arrival(route: trip.routeID, minutes: (stop.time - now) / 60))
             }
             return Array(out.sorted { $0.minutes < $1.minutes }.prefix(perDirection))
         }
@@ -42,13 +39,13 @@ struct StationBoard {
     }
 }
 
-/// Draws the next-train boards: for each home station, its name and route symbols, then two columns
-/// (the MTA's direction labels) of upcoming trains with destination and minutes.
+/// Draws the next-train boards, built to be read from across a room: for each home station its name and route
+/// symbols, then two narrow columns (the MTA's direction labels, e.g. Uptown / Downtown) listing the next trains
+/// as a large route symbol and the minutes until they arrive. The clock sits at the top right.
 ///
 /// The board is sized to its content: `height(stations:perDirection:width:)` gives the height for a number of
-/// stations and rows, so SubwayView can give it exactly that and hand the rest of the column to the map.
-/// Every station gets `perDirection` rows whether or not that many trains are listed, so the height doesn't
-/// change from tick to tick.
+/// stations and rows, so SubwayView can give it exactly that. Every station gets `perDirection` rows whether or
+/// not that many trains are listed, so the height doesn't change from tick to tick.
 final class NextTrainsView: NSView {
     var boards: [StationBoard] = [] { didSet { needsDisplay = true } }
     /// The time shown at the top right of the board (set with each update).
@@ -61,22 +58,22 @@ final class NextTrainsView: NSView {
     }()
     /// Trains listed each way at each station (set by SubwayView's layout).
     var perDirection = 2 { didSet { needsDisplay = true } }
-    /// route → (background colour, letter colour), from network.json.
+    /// route → (background color, letter color), from network.json.
     var routeColors: [String: (NSColor, NSColor)] = [:]
 
     override var isFlipped: Bool { true }  // lay out top to bottom
 
-    // ---- Sizes (all in units of the base font size, so the board scales with the column) ----
-    private static let headerRows: CGFloat = 0.6 + 1.4  // top margin + "NEXT TRAINS"
-    private static let nameRow: CGFloat = 1.7  // station name and route symbols
-    private static let labelRow: CGFloat = 1.2  // "UPTOWN" / "DOWNTOWN"
-    private static let trainRow: CGFloat = 1.35
-    private static let stationGap: CGFloat = 0.9
+    // ---- Sizes (all in units of the base font size, so the board scales with its width) ----
+    private static let headerRows: CGFloat = 0.6 + 1.8  // top margin + "NEXT TRAINS" and the clock
+    private static let nameRow: CGFloat = 2.0  // station name and route symbols
+    private static let labelRow: CGFloat = 1.3  // "UPTOWN" / "DOWNTOWN"
+    private static let trainRow: CGFloat = 2.1  // a large route symbol and the minutes
+    private static let stationGap: CGFloat = 1.0
     private static let bottomMargin: CGFloat = 0.6
 
-    /// Base font size for a board of this width: smaller than body text on a wide column, never tiny.
+    /// Base font size for a board of this width.
     static func unit(forWidth width: CGFloat) -> CGFloat {
-        min(max(width / 44, 9), 13)
+        min(max(width / 20, 11), 18)
     }
 
     /// The height the board needs for `stations` stations with `perDirection` rows each way.
@@ -94,44 +91,53 @@ final class NextTrainsView: NSView {
         let pad = unit
         var y = pad * 0.6
 
-        text("NEXT TRAINS", at: CGPoint(x: pad, y: y), size: unit * 0.75, color: .gray, weight: .semibold)
+        text("NEXT TRAINS", at: CGPoint(x: pad, y: y + unit * 0.35), size: unit * 0.75, color: .gray, weight: .semibold)
         // The clock, right-aligned on the same line; digits of equal width so it doesn't shift as it changes.
         let clock = NSAttributedString(string: Self.clockFormat.string(from: time), attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.05, weight: .semibold), .foregroundColor: NSColor.white,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.3, weight: .semibold), .foregroundColor: NSColor.white,
         ])
-        clock.draw(at: CGPoint(x: bounds.width - pad - clock.size().width, y: y - unit * 0.2))
-        y += unit * 1.4
+        clock.draw(at: CGPoint(x: bounds.width - pad - clock.size().width, y: y - unit * 0.1))
+        y += unit * 1.8
         if boards.isEmpty {
-            text("Choose home stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: .gray)
+            text("Choose stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: .gray,
+                 maxWidth: bounds.width - 2 * pad)
             return
         }
         let columnWidth = (bounds.width - 3 * pad) / 2
         for board in boards {
             guard y < bounds.height - unit * 2 else { break }  // out of room
             // Station name, then a symbol for each route with a train coming.
-            var x = pad + text(board.name, at: CGPoint(x: pad, y: y), size: unit * 1.15, weight: .bold) + unit * 0.5
-            for route in board.routesNow {
-                x += bullet(route, center: CGPoint(x: x + unit * 0.6, y: y + unit * 0.7), diameter: unit * 1.15)
-                    + unit * 0.25
+            let symbols = board.routesNow
+            let symbolsWidth = CGFloat(symbols.count) * unit * 1.5
+            var x = pad + text(board.name, at: CGPoint(x: pad, y: y), size: unit * 1.3, weight: .bold,
+                               maxWidth: bounds.width - 2 * pad - symbolsWidth - unit * 0.4) + unit * 0.5
+            for route in symbols {
+                x += bullet(route, center: CGPoint(x: x + unit * 0.65, y: y + unit * 0.9), diameter: unit * 1.3) + unit * 0.2
             }
             y += unit * NextTrainsView.nameRow
             // Two columns: north-bound and south-bound, each with exactly `perDirection` rows.
             for (column, (label, arrivals)) in [(board.northLabel, board.north), (board.southLabel, board.south)].enumerated() {
                 let left = pad + CGFloat(column) * (columnWidth + pad)
                 var rowY = y
-                text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.7, color: .gray, weight: .semibold)
+                text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.75, color: .gray, weight: .semibold,
+                     maxWidth: columnWidth)
                 rowY += unit * NextTrainsView.labelRow
                 if arrivals.isEmpty {
-                    text("No trains listed", at: CGPoint(x: left, y: rowY), size: unit * 0.85, color: .darkGray)
+                    text("None listed", at: CGPoint(x: left, y: rowY + unit * 0.4), size: unit * 0.9, color: .darkGray)
                 }
                 for arrival in arrivals.prefix(perDirection) {
-                    bullet(arrival.route, center: CGPoint(x: left + unit * 0.55, y: rowY + unit * 0.6), diameter: unit)
-                    let minutes = arrival.minutes < 0.5 ? "now" : "\(Int(arrival.minutes.rounded())) min"
-                    let minutesWidth = measure(minutes, size: unit * 0.95, weight: .semibold)
-                    text(minutes, at: CGPoint(x: left + columnWidth - minutesWidth, y: rowY), size: unit * 0.95,
-                         weight: .semibold)
-                    text(arrival.destination, at: CGPoint(x: left + unit * 1.5, y: rowY), size: unit * 0.9,
-                         color: NSColor(white: 0.85, alpha: 1), maxWidth: columnWidth - unit * 1.6 - minutesWidth - unit * 0.4)
+                    let diameter = unit * 1.6
+                    bullet(arrival.route, center: CGPoint(x: left + diameter / 2, y: rowY + unit * 0.95), diameter: diameter)
+                    // The number large, "min" smaller beside it; "now" for a train arriving now.
+                    let textX = left + diameter + unit * 0.5
+                    if arrival.minutes < 0.5 {
+                        text("now", at: CGPoint(x: textX, y: rowY + unit * 0.05), size: unit * 1.45, weight: .semibold)
+                    } else {
+                        let number = "\(Int(arrival.minutes.rounded()))"
+                        let w = text(number, at: CGPoint(x: textX, y: rowY + unit * 0.05), size: unit * 1.45, weight: .semibold)
+                        text("min", at: CGPoint(x: textX + w + unit * 0.25, y: rowY + unit * 0.55), size: unit * 0.85,
+                             color: NSColor(white: 0.75, alpha: 1))
+                    }
                     rowY += unit * NextTrainsView.trainRow
                 }
             }
