@@ -109,8 +109,18 @@ final class NextTrainsView: NSView {
             // Station name, then a symbol for each route with a train coming.
             let symbols = board.routesNow
             let symbolsWidth = CGFloat(symbols.count) * unit * 1.5
-            var x = pad + text(board.name, at: CGPoint(x: pad, y: y), size: unit * 1.3, weight: .bold,
-                               maxWidth: bounds.width - 2 * pad - symbolsWidth - unit * 0.4) + unit * 0.5
+            // A long name shrinks to fit beside its symbols (down to half the usual size, then it is cut short),
+            // and stays vertically centered on the row.
+            let room = bounds.width - 2 * pad - symbolsWidth - unit * 0.4
+            let full = unit * 1.3
+            // (The system font spaces small text a little more loosely, so measure again at each size.)
+            var nameSize = full
+            while nameSize > full * 0.5, measure(board.name, size: nameSize, weight: .bold) > room * 0.98 {
+                nameSize *= 0.96
+            }
+            nameSize = max(nameSize, full * 0.5)
+            var x = pad + text(board.name, at: CGPoint(x: pad, y: y + (full - nameSize) * 0.6), size: nameSize, weight: .bold,
+                               maxWidth: room) + unit * 0.5
             for route in symbols {
                 x += bullet(route, center: CGPoint(x: x + unit * 0.65, y: y + unit * 0.9), diameter: unit * 1.3) + unit * 0.2
             }
