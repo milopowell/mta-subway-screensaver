@@ -51,9 +51,9 @@ final class NextTrainsView: NSView {
     var theme: Theme = .dark { didSet { needsDisplay = true } }
     /// How opaque the board's own background is: 1 normally, less when it sits on glass (SubwayView.placeBoard).
     var backgroundAlpha: CGFloat = 1 { didSet { needsDisplay = true } }
-    /// Draws a rounded patch of the theme's background behind each piece of information (the clock, each station's
-    /// name and route symbols, the direction labels, each train's symbol and minutes), so they stay readable on clear
-    /// glass while the rest of the board stays see-through.
+    /// Draws a rounded patch of the theme's background behind each piece of text (the "NEXT TRAINS" heading, the clock,
+    /// each station's name and route symbols, the direction labels, each train's symbol and minutes), so they stay
+    /// readable on clear glass while the rest of the board stays see-through.
     var textBackdrops = false { didSet { needsDisplay = true } }
     /// The time shown at the top right of the board (set with each update).
     var time = Date() { didSet { needsDisplay = true } }
@@ -94,12 +94,14 @@ final class NextTrainsView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         if backgroundAlpha > 0 {
             theme.background.withAlphaComponent(backgroundAlpha).setFill()
-            bounds.fill(using: .copy)
+            bounds.fill(using: .sourceOver)  // over what's underneath, so a see-through board stays see-through
         }
         let unit = NextTrainsView.unit(forWidth: bounds.width)
         let pad = unit
         var y = pad * 0.6
 
+        backdrop(CGRect(x: pad, y: y + unit * 0.45, width: measure("NEXT TRAINS", size: unit * 0.75, weight: .semibold),
+                        height: unit * 0.75), unit: unit)
         text("NEXT TRAINS", at: CGPoint(x: pad, y: y + unit * 0.35), size: unit * 0.75, color: theme.secondaryInk, weight: .semibold)
         // The clock, right-aligned on the same line; digits of equal width so it doesn't shift as it changes.
         let clock = NSAttributedString(string: Self.clockFormat.string(from: time), attributes: [
@@ -131,8 +133,8 @@ final class NextTrainsView: NSView {
             }
             nameSize = max(nameSize, full * 0.5)
             let nameWidth = min(measure(board.name, size: nameSize, weight: .bold), room)
-            backdrop(CGRect(x: pad, y: y + unit * 0.2, width: nameWidth + unit * 0.5 + CGFloat(symbols.count) * unit * 1.5 - unit * 0.2,
-                            height: unit * 1.4), unit: unit)
+            backdrop(CGRect(x: pad, y: y + unit * 0.25, width: nameWidth + unit * 0.5 + CGFloat(symbols.count) * unit * 1.5 - unit * 0.2,
+                            height: unit * 1.3), unit: unit)
             var x = pad + text(board.name, at: CGPoint(x: pad, y: y + (full - nameSize) * 0.6), size: nameSize, weight: .bold,
                                maxWidth: room) + unit * 0.5
             for route in symbols {
@@ -144,7 +146,7 @@ final class NextTrainsView: NSView {
                 let left = pad + CGFloat(column) * (columnWidth + pad)
                 var rowY = y
                 let labelWidth = min(measure(label.uppercased(), size: unit * 0.75, weight: .semibold), columnWidth)
-                backdrop(CGRect(x: left, y: rowY, width: labelWidth, height: unit * 0.9), unit: unit)
+                backdrop(CGRect(x: left, y: rowY + unit * 0.1, width: labelWidth, height: unit * 0.75), unit: unit)
                 text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.75, color: theme.secondaryInk, weight: .semibold,
                      maxWidth: columnWidth)
                 rowY += unit * NextTrainsView.labelRow
@@ -196,7 +198,9 @@ final class NextTrainsView: NSView {
     /// A rounded patch of the theme's background around `content` (when `textBackdrops` is on).
     private func backdrop(_ content: CGRect, unit: CGFloat) {
         guard textBackdrops else { return }
-        let rect = content.insetBy(dx: -unit * 0.35, dy: -unit * 0.2)
+        // Padding small enough that neighboring patches (a station name and the direction labels under it, two train
+        // rows) keep a visible gap between them.
+        let rect = content.insetBy(dx: -unit * 0.35, dy: -unit * 0.15)
         theme.background.withAlphaComponent(theme.isLight ? 0.75 : 0.65).setFill()
         NSBezierPath(roundedRect: rect, xRadius: min(unit * 0.55, rect.height / 2), yRadius: min(unit * 0.55, rect.height / 2)).fill()
     }

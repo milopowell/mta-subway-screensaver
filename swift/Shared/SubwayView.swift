@@ -225,22 +225,28 @@ final class SubwayView: NSView {
 
     // ---- The board's glass ----
 
-    /// Puts the next-train board at `frame`, on glass or on its own solid background as the Board setting says. Glass
-    /// is for the close-up only, where the board floats over the map; in the split layout it sits beside the map,
-    /// with nothing behind it to see through.
+    /// Puts the next-train board at `frame`, on glass or on its own background as the Board setting says. Glass is for
+    /// the close-up only, where the board floats over the map; in the split layout it sits beside the map, with nothing
+    /// behind it to see through.
+    ///
+    /// Clear glass is drawn by the board itself (the map shows through, unblurred, under a tint and the text backdrops)
+    /// rather than with Apple's clear glass style, which the screensaver drew like regular glass: a screensaver's window
+    /// is never the active one.
     private func placeBoard(_ frame: CGRect, closeUp: Bool) {
         boardPlacement = (frame, closeUp)
         let style = closeUp ? settings.boardStyle : .solid
-        guard style != .solid else {
+        guard style == .glass else {
             if let glass = boardGlass {
                 addSubview(nextTrains)  // takes the board out of the glass
                 glass.removeFromSuperview()
                 boardGlass = nil
             }
-            nextTrains.backgroundAlpha = 1
-            nextTrains.textBackdrops = false
+            nextTrains.autoresizingMask = []
             nextTrains.frame = frame
             styleAsCard(nextTrains.layer, closeUp)
+            let clear = style == .clearGlass
+            nextTrains.backgroundAlpha = clear ? CGFloat(settings.boardTint) : 1
+            nextTrains.textBackdrops = clear && settings.boardBackdrops
             return
         }
         let glass = boardGlass ?? makeGlass()
@@ -250,7 +256,7 @@ final class SubwayView: NSView {
         glass.appearance = NSAppearance(named: theme.isLight ? .aqua : .darkAqua)  // the glass follows the theme
         let tint = CGFloat(settings.boardTint)
         if #available(macOS 26.0, *), let glass = glass as? NSGlassEffectView {
-            glass.style = style == .clearGlass ? .clear : .regular
+            glass.style = .regular
             glass.cornerRadius = 8
             glass.tintColor = tint > 0 ? theme.background.withAlphaComponent(tint) : nil
             nextTrains.backgroundAlpha = 0
@@ -260,7 +266,7 @@ final class SubwayView: NSView {
             glass.layer?.masksToBounds = true
             nextTrains.backgroundAlpha = tint  // tints the blur, as the glass's tint color does on macOS 26
         }
-        nextTrains.textBackdrops = style == .clearGlass && settings.boardBackdrops
+        nextTrains.textBackdrops = false
         nextTrains.frame = glass.bounds
         nextTrains.autoresizingMask = [.width, .height]
         nextTrains.layer?.borderWidth = 0  // the glass draws its own edge
@@ -708,10 +714,19 @@ final class SubwayView: NSView {
         ctx.scaleBy(x: scale, y: scale)
         layer.render(in: ctx)
         // AppKit-drawn views aren't captured by layer.render, so draw the next-train panel explicitly.
-        if !nextTrains.isHidden, let rep = nextTrains.bitmapImageRepForCachingDisplay(in: nextTrains.bounds) {
-            nextTrains.cacheDisplay(in: nextTrains.bounds, to: rep)
-            // (On glass the board is inside the glass view; the glass itself can't be captured off screen.)
-            if let image = rep.cgImage { ctx.draw(image, in: nextTrains.convert(nextTrains.bounds, to: self)) }
+        if !nextTrains.isHidden {
+            // Drawn straight onto the picture, so a see-through board shows the map under it. (On glass the board is
+            // inside the glass view; the glass itself can't be captured off screen.)
+            let frame = nextTrains.convert(nextTrains.bounds, to: self)
+            ctx.saveGState()
+            ctx.translateBy(x: frame.minX, y: frame.maxY)
+            ctx.scaleBy(x: 1, y: -1)  // the board draws top to bottom
+            ctx.clip(to: nextTrains.bounds)
+            let previous = NSGraphicsContext.current
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+            nextTrains.draw(nextTrains.bounds)
+            NSGraphicsContext.current = previous
+            ctx.restoreGState()
         }
         if !offlineLayer.isHidden {  // it sits above the panel on screen, so draw it again on top here
             ctx.saveGState()

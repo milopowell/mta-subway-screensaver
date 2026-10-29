@@ -323,8 +323,8 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | layout | View menu (saved) | Split View | Split View or Close-up |
 | `MAP_FIXES` | notebook §1 | 6 stations | Stations the automatic map matching places on the wrong circles: station ID → a point on its correct circles (§4) |
 | appearance | Appearance menu, or the Options sheet | Dark | Dark, Light, Match the Mac (follows System Settings > Appearance), or Light by day (7 AM to 7 PM; `dayStartHour` and `dayEndHour` in `swift/Shared/SubwaySettings.swift`) |
-| train board | Appearance > Train Board, or the Options sheet | Glass | In the close-up, the next-train board sits on Liquid Glass (macOS 26; a frosted blur before), clear glass, or a solid card. In the split layout it is always solid |
-| text backdrops | Appearance > Train Board, or the Options sheet | on | On clear glass, a rounded patch behind the clock, each station name, the direction labels and each train, so the rest of the board can stay clear |
+| train board | Appearance > Train Board, or the Options sheet | Glass | In the close-up, the next-train board sits on Liquid Glass (macOS 26; a frosted blur before), on clear glass (the map shows through unblurred; drawn by the board itself, since Apple's clear glass style looked like regular glass in the screensaver), or on a solid card. In the split layout it is always solid |
+| text backdrops | Appearance > Train Board, or the Options sheet | on | On clear glass, a rounded patch behind the heading, the clock, each station name, the direction labels and each train, so the rest of the board can stay clear |
 | glass tint | Appearance > Train Board, or the Options sheet (slider) | 30% | How strongly the glass is tinted with the theme's background: lower is more see-through, higher is easier to read over a busy map |
 | `LAND_LIGHT` | `mtamap/style.py` | off-white | Land color of the light map (re-run §8 and rebuild after changing) |
 | time-lapse | automatic when offline; Debug menu to force | off | Backup replay of the last 30 minutes at 20 times speed. `speed`, `window` and `minimumHistory` are in `swift/Shared/TimeLapse.swift` |

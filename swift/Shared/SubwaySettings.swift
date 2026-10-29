@@ -37,7 +37,7 @@ final class SubwaySettings {
     /// How the next-train board is drawn in the close-up, where it floats over the map.
     enum BoardStyle: String, CaseIterable {
         case glass  // Liquid Glass (macOS 26; a frosted blur before): the map shows through, blurred
-        case clearGlass  // more see-through glass, with less blur
+        case clearGlass  // see-through: the map shows unblurred, under the tint and the text backdrops
         case solid  // an opaque card in the theme's background color
 
         var title: String {
