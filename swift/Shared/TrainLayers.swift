@@ -14,13 +14,10 @@ final class TrainLayers {
     /// The upper lines' bands (map units) a glide's path passes under (Locator.overpasses): the part of the dot inside
     /// them is hidden, so it slips under the line's black border and comes out the other side.
     var overpasses: (([CGPoint]) -> [CGPath])?
-    /// Trains whose dots get a ring: the next train each way at your stations (when that feature is on).
-    var highlighted: Set<String> = [] {
-        didSet {
-            guard highlighted != oldValue else { return }
-            for (key, layer) in layers { setRing(key, on: layer) }
-        }
-    }
+    /// Simpler motion, for the time-lapse: at 20 times speed there are dozens of stops and starts a second, so dots
+    /// change look instantly instead of over `morphSeconds`, and glides (about 3 s long there) skip the overpass
+    /// masks. Both are expensive in bulk, and neither is visible at that speed.
+    var simple = false
     /// Colors for the dots (dark or light map).
     var theme: Theme = .dark {
         didSet {
@@ -33,7 +30,6 @@ final class TrainLayers {
                 layer.backgroundColor = theme.train(look).cgColor
                 layer.shadowColor = theme.glowColor.cgColor
                 layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0
-                setRing(key, on: layer)
             }
             CATransaction.commit()
         }
@@ -118,7 +114,7 @@ final class TrainLayers {
 
                 // Under an overpass: a mask hides the part of the dot inside the upper lines' bands. The bands stay put
                 // on the map while the dot moves, so the mask moves the opposite way, in step with the glide.
-                if let bands = overpasses?(path), let first = bands.first {
+                if !simple, let bands = overpasses?(path), let first = bands.first {
                     let origin = toView(.zero), scale = toView(CGPoint(x: 1, y: 0)).x - origin.x
                     var toPoints = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: origin.x, ty: origin.y)
                     let covered = bands.dropFirst().reduce(first) { $0.union($1) }.copy(using: &toPoints) ?? first
@@ -205,7 +201,6 @@ final class TrainLayers {
         container.addSublayer(layer)
         layers[key] = layer
         looks[key] = look
-        setRing(key, on: layer)
         CATransaction.commit()
         CATransaction.begin()
         CATransaction.setAnimationDuration(1.0)
@@ -224,40 +219,8 @@ final class TrainLayers {
         layer.borderWidth = max(d / 8, 0.75)
         layer.shadowRadius = d * 0.6
         layer.shadowPath = CGPath(ellipseIn: bounds, transform: nil)  // a known shape is much cheaper to shadow
-        if let ring = layer.sublayers?.first(where: { $0.name == "ring" }) as? CAShapeLayer { shapeRing(ring, around: layer) }
     }
 
-    /// Adds or removes the ring around a highlighted train's dot: a thin circle a little larger than the dot, gently
-    /// pulsing. It is part of the dot, so it moves with it and hides with it under an overpass.
-    private func setRing(_ key: String, on layer: CALayer) {
-        let existing = layer.sublayers?.first { $0.name == "ring" } as? CAShapeLayer
-        guard highlighted.contains(key) else {
-            existing?.removeFromSuperlayer()
-            return
-        }
-        let ring = existing ?? CAShapeLayer()
-        ring.name = "ring"
-        ring.fillColor = nil
-        ring.strokeColor = theme.ink.cgColor
-        shapeRing(ring, around: layer)
-        if existing == nil {
-            layer.addSublayer(ring)
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 1
-            pulse.toValue = 0.35
-            pulse.duration = 1.2
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            ring.add(pulse, forKey: "pulse")
-        }
-    }
-
-    private func shapeRing(_ ring: CAShapeLayer, around layer: CALayer) {
-        let d = dot * 2.1, inset = (layer.bounds.width - d) / 2
-        ring.frame = layer.bounds
-        ring.lineWidth = max(dot / 5, 1.2)
-        ring.path = CGPath(ellipseIn: CGRect(x: inset, y: inset, width: d, height: d), transform: nil)
-    }
 
     /// Moving / stopped / parked: size and color change together over `morphSeconds`.
     private func setLook(_ look: TrainLook, key: String, on layer: CALayer, animated: Bool) {
@@ -265,8 +228,9 @@ final class TrainLayers {
         if looks[key] == look, layer.backgroundColor == color { return }
         looks[key] = look
         CATransaction.begin()
-        CATransaction.setAnimationDuration(animated ? morphSeconds : 0)
-        if !animated { CATransaction.setDisableActions(true) }
+        let morph = animated && !simple
+        CATransaction.setAnimationDuration(morph ? morphSeconds : 0)
+        if !morph { CATransaction.setDisableActions(true) }
         size(layer, look)
         layer.backgroundColor = color
         layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0

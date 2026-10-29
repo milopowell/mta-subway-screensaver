@@ -9,23 +9,12 @@
 /* Begin PBXBuildFile section */
 		1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 868102A57BDB9C69618DC4ED /* SwiftProtobuf */; };
 		EE4E6DE988AE3C2736B85E82 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 7C59F8FFDB71F2EA17C5AE11 /* SwiftProtobuf */; };
-		5508AFA252F275BC00908EEA /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = CAF4CA18B8E184A0A61ECBD3 /* SwiftProtobuf */; };
 		90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 3A6A6B764C87109823AF9CB0 /* SwiftProtobuf */; };
-		5C06AD9970156D6758A45CBF /* SubwayWidget.appex in Embed */ = {isa = PBXBuildFile; fileRef = AC82B70CCA814E30B2E2B0EC /* SubwayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		0E60399D4DFFD22EC636AB8A /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */; proxyType = 1; remoteGlobalIDString = C335B477BEB8EC889191CBD1; remoteInfo = SubwayWidget; };
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		1D92503361CC21FB3FFECAB6 /* Embed Foundation Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (5C06AD9970156D6758A45CBF /* SubwayWidget.appex in Embed */, ); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0; };
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1C4E0A09308067BF2103BF2E /* SubwayPreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SubwayPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F4464826A074D4FCA5465608 /* SubwaySandbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SubwaySandbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AC82B70CCA814E30B2E2B0EC /* SubwayWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SubwayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SubwaySaver.saver; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -34,14 +23,12 @@
 		5612E59FC4B72BE063F16B37 /* PreviewApp */ = {isa = PBXFileSystemSynchronizedRootGroup; name = PreviewApp; path = PreviewApp; sourceTree = "<group>"; };
 		EAF2CCFEF76A18F51188301A /* Sandbox */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Sandbox; path = Sandbox; sourceTree = "<group>"; };
 		8543D41553E53A575CCE7ED3 /* Saver */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Saver; path = Saver; sourceTree = "<group>"; };
-		9D11589BE8EF81E049105716 /* Widget */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Widget; path = Widget; sourceTree = "<group>"; };
 		0BE2EE54693CE23209956F05 /* export */ = {isa = PBXFileSystemSynchronizedRootGroup; name = export; path = ../export; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		5E10857BBE0656EE4C10C339 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		4017AF71A86820834A51E685 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (EE4E6DE988AE3C2736B85E82 /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
-		567D53B9400D45E3EB758BCE /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (5508AFA252F275BC00908EEA /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		094F710C1850499430DB21DD /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
@@ -53,7 +40,6 @@
 				5612E59FC4B72BE063F16B37 /* PreviewApp */,
 				EAF2CCFEF76A18F51188301A /* Sandbox */,
 				8543D41553E53A575CCE7ED3 /* Saver */,
-				9D11589BE8EF81E049105716 /* Widget */,
 				0BE2EE54693CE23209956F05 /* export */,
 				1BADDC1D73C1A20F347483E1 /* Products */,
 			);
@@ -64,7 +50,6 @@
 			children = (
 				1C4E0A09308067BF2103BF2E /* SubwayPreview.app */,
 				F4464826A074D4FCA5465608 /* SubwaySandbox.app */,
-				AC82B70CCA814E30B2E2B0EC /* SubwayWidget.appex */,
 				11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */,
 			);
 			name = Products;
@@ -80,12 +65,10 @@
 				242A282DF7ACED89429476A8 /* Sources */,
 				5E10857BBE0656EE4C10C339 /* Frameworks */,
 				EC69307397232E651FE0983D /* Resources */,
-				1D92503361CC21FB3FFECAB6 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				73A0C73235517A2AC04A3E53 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B51D13789FB3FEA0D62449FD /* Shared */,
@@ -124,31 +107,6 @@
 			productName = SubwaySandbox;
 			productReference = F4464826A074D4FCA5465608 /* SubwaySandbox.app */;
 			productType = "com.apple.product-type.application";
-		};
-		C335B477BEB8EC889191CBD1 /* SubwayWidget */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D646ABED47B8EFFD6607E195 /* Build configuration list for PBXNativeTarget "SubwayWidget" */;
-			buildPhases = (
-				8712D5D96326044E611291E9 /* Sources */,
-				567D53B9400D45E3EB758BCE /* Frameworks */,
-				146D0E3EBCBD1F714BBBED3B /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				B51D13789FB3FEA0D62449FD /* Shared */,
-				9D11589BE8EF81E049105716 /* Widget */,
-				0BE2EE54693CE23209956F05 /* export */,
-			);
-			name = SubwayWidget;
-			packageProductDependencies = (
-				CAF4CA18B8E184A0A61ECBD3 /* SwiftProtobuf */,
-			);
-			productName = SubwayWidget;
-			productReference = AC82B70CCA814E30B2E2B0EC /* SubwayWidget.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 		8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */ = {
 			isa = PBXNativeTarget;
@@ -204,7 +162,6 @@
 			targets = (
 				02D5EF75D95FCBA94373955A /* SubwayPreview */,
 				196B6B8605B4319B6F14F90F /* SubwaySandbox */,
-				C335B477BEB8EC889191CBD1 /* SubwayWidget */,
 				8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */,
 			);
 		};
@@ -213,20 +170,14 @@
 /* Begin PBXResourcesBuildPhase section */
 		EC69307397232E651FE0983D /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		FE9855D2B342C20ED8687362 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		146D0E3EBCBD1F714BBBED3B /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		E19CD36484D907829B578870 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		242A282DF7ACED89429476A8 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		9739095DBB8B6A2BC85DEE35 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		8712D5D96326044E611291E9 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		6B0E1EB731424F0383902F4F /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		73A0C73235517A2AC04A3E53 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = C335B477BEB8EC889191CBD1 /* SubwayWidget */; targetProxy = 0E60399D4DFFD22EC636AB8A /* PBXContainerItemProxy */; };
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		27DCD3D8A80B96BAC7F43628 /* Debug */ = {
@@ -339,46 +290,6 @@
 			};
 			name = Release;
 		};
-		1B7CB34D95B28162861158AD /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
-				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.1;
-				CURRENT_PROJECT_VERSION = 1;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview.widget;
-				INFOPLIST_FILE = WidgetSupport/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Subway";
-				CODE_SIGN_ENTITLEMENTS = WidgetSupport/SubwayWidget.entitlements;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @executable_path/../../../../Frameworks";
-				SKIP_INSTALL = YES;
-			};
-			name = Debug;
-		};
-		5CAC33FA2540B34DA8EB1D43 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
-				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.1;
-				CURRENT_PROJECT_VERSION = 1;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview.widget;
-				INFOPLIST_FILE = WidgetSupport/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Subway";
-				CODE_SIGN_ENTITLEMENTS = WidgetSupport/SubwayWidget.entitlements;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @executable_path/../../../../Frameworks";
-				SKIP_INSTALL = YES;
-			};
-			name = Release;
-		};
 		DD4B21CA91E3A52069C4BFBC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -451,15 +362,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		D646ABED47B8EFFD6607E195 /* Build configuration list for PBXNativeTarget "SubwayWidget" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				1B7CB34D95B28162861158AD /* Debug */,
-				5CAC33FA2540B34DA8EB1D43 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		E7BEE490FC945E2C395AC831 /* Build configuration list for PBXNativeTarget "SubwaySaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -489,11 +391,6 @@
 			productName = SwiftProtobuf;
 		};
 		7C59F8FFDB71F2EA17C5AE11 /* SwiftProtobuf */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
-			productName = SwiftProtobuf;
-		};
-		CAF4CA18B8E184A0A61ECBD3 /* SwiftProtobuf */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
 			productName = SwiftProtobuf;

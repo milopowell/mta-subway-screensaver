@@ -1,7 +1,7 @@
 import AppKit
 
 /// Opens one window showing SubwayView, sized like your screen, with a minimal menu (Quit; View: layouts,
-/// close-up zoom, Full Screen; Appearance; Features: the trial features; Debug).
+/// close-up zoom, Full Screen; Appearance; Debug).
 final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     private let startFullScreen: Bool
     private var window: NSWindow?
@@ -24,12 +24,15 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         let view = SubwayView(frame: NSRect(origin: .zero, size: size), allowsInteraction: true)  // home-station picker button on
         view.showsStatus = true  // time, train counts, data age and CPU use along the bottom
         view.forceTimeLapse = CommandLine.arguments.contains("--time-lapse")
+        if let i = CommandLine.arguments.firstIndex(of: "--time-lapse-after"), i + 1 < CommandLine.arguments.count,
+           let seconds = Double(CommandLine.arguments[i + 1]) {
+            view.setTimeLapseMinimumHistory(seconds)  // start the time-lapse sooner, for testing
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--simulate-outage"), i + 1 < CommandLine.arguments.count {
             view.simulatedOutage = Set(CommandLine.arguments[i + 1].split(separator: ",").map(String.init))
         }
         window.contentView = view
         subwayView = view
-        if UserDefaults.standard.bool(forKey: Self.sharesKey) { shareSettings(true) }
         NSApp.mainMenu = makeMenu()  // after the view exists, so the Time-lapse item shows its saved state
         view.start()  // download the feeds and start moving trains
         window.collectionBehavior.insert(.fullScreenPrimary)
@@ -50,38 +53,10 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showCloseUp() { subwayView?.setLayout(.closeUp) }
     @objc private func zoomIn() { subwayView?.stepMagnification(1) }
     @objc private func zoomOut() { subwayView?.stepMagnification(-1) }
-    /// Whether the preview app uses the screensaver's settings file (stations, magnification, appearance, features)
-    /// instead of its own; remembered in the app's own preferences.
-    private static let sharesKey = "sharesSettingsWithScreensaver"
-
-    private func shareSettings(_ on: Bool) {
-        guard let view = subwayView else { return }
-        view.settings.file = on ? SubwaySettings.sharedFile(inside: false) : nil
-        if on { view.settings.seedFile() }  // the screensaver has none yet: give it the preview app's
-        view.settingsChanged()
-        view.reloadStations()
-    }
-
-    @objc private func toggleSharing(_ item: NSMenuItem) {
-        let on = item.state != .on
-        UserDefaults.standard.set(on, forKey: Self.sharesKey)
-        item.state = on ? .on : .off
-        shareSettings(on)
-        NSApp.mainMenu = makeMenu()  // the Appearance and Features menus show the settings now in use
-    }
-
     @objc private func chooseAppearance(_ item: NSMenuItem) {
         guard let view = subwayView else { return }
         view.settings.appearance = SubwaySettings.Appearance.allCases[item.tag]
         for other in item.menu?.items ?? [] { other.state = other === item ? .on : .off }
-        view.settingsChanged()
-    }
-
-    @objc private func toggleFeature(_ item: NSMenuItem) {
-        guard let view = subwayView else { return }
-        let feature = SubwaySettings.Feature.allCases[item.tag]
-        view.settings.set(feature, on: !view.settings.isOn(feature))
-        item.state = view.settings.isOn(feature) ? .on : .off
         view.settingsChanged()
     }
 
@@ -116,7 +91,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         viewItem.submenu = viewMenu
 
-        // Appearance (dark, light, automatic) and the features on trial, each switched on and off here.
+        // Appearance: dark, light, or one of the automatic choices.
         let lookItem = NSMenuItem()
         main.addItem(lookItem)
         let lookMenu = NSMenu(title: "Appearance")
@@ -127,23 +102,6 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
             item.state = subwayView?.settings.appearance == choice ? .on : .off
         }
         lookItem.submenu = lookMenu
-
-        let featureItem = NSMenuItem()
-        main.addItem(featureItem)
-        let featureMenu = NSMenu(title: "Features")
-        for (i, feature) in SubwaySettings.Feature.allCases.enumerated() {
-            let item = featureMenu.addItem(withTitle: feature.title, action: #selector(toggleFeature(_:)), keyEquivalent: "")
-            item.tag = i
-            item.target = self
-            item.state = subwayView?.settings.isOn(feature) == true ? .on : .off
-        }
-        featureMenu.addItem(.separator())
-        let share = featureMenu.addItem(withTitle: "Share Settings with Screensaver", action: #selector(toggleSharing(_:)),
-                                        keyEquivalent: "")
-        share.target = self
-        share.state = UserDefaults.standard.bool(forKey: Self.sharesKey) ? .on : .off
-        share.toolTip = "Use the screensaver's stations, magnification, appearance and features, so changes here show there too"
-        featureItem.submenu = featureMenu
 
         // Testing tools.
         let debugItem = NSMenuItem()

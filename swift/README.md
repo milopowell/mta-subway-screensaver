@@ -11,7 +11,6 @@ The app reads the two files the notebook exports in §8 of `subway_pipeline.ipyn
 | `Shared/` | both targets | Everything below |
 | `PreviewApp/` | SubwayPreview | A normal Mac app that shows `SubwayView` in a window, for development, plus the command-line test options |
 | `Sandbox/` | SubwaySandbox | A separate app for sending trains by hand and trying out new features: no live data, no saved settings (see below) |
-| `Widget/` | SubwayWidget | The desktop widget (next trains at one station), built into SubwayPreview.app; its Info.plist and entitlements are in `WidgetSupport/` |
 | `Saver/` | SubwaySaver | `SubwaySaverView`, the `.saver` entry point: hosts `SubwayView`, provides the Options sheet, stops on `willstop`; `thumbnail.png` for System Settings |
 | `../export/` | both targets | The notebook's exported map and network data (bundled as resources) |
 
@@ -37,10 +36,9 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
 | `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker |
-| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance, other displays, trial features; in preferences or in the screensaver's shared settings file |
+| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance |
 | `Theme.swift` | Dark and light: which map to show and the colors of the dots, board, cards and notes |
-| `AppearanceOptions.swift` | The appearance and trial-feature controls in the screensaver's Options sheet |
-| `ServiceAlerts.swift` | Downloads the MTA's alerts feed and draws the alerts card |
+| `AppearanceOptions.swift` | The appearance choice in the screensaver's Options sheet |
 
 ## Building and running
 
@@ -61,11 +59,11 @@ Preview app options (run the executable inside the app directly):
 - `--fullscreen`: start in full screen (Control-Command-F toggles it, Command-Q quits)
 - `--snapshot out.png [--width 1512 --height 982]`: render the view to a PNG and quit, without a window
 - `--home ID,ID`, `--layout split|closeUp` and `--magnification M`: home stations, layout and magnification for a snapshot only
-- `--appearance dark|light|system|timeOfDay` and `--features alerts,nextTrainRing,drift,largeClock,quietHours`: appearance and trial features for a snapshot only
+- `--appearance dark|light|system|timeOfDay`: appearance for a snapshot only
 - `--dump-placements out.json`: write every trip's placement (feed, trip_id, x, y, how) and quit
 - train data for those two: `--live` (download now), or `--feeds-dir DIR --now UNIXTIME` (saved feeds `DIR/<feed>.pb`)
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move
-- `--time-lapse`: force the time-lapse (normally a backup when live data is unavailable)
+- `--time-lapse`: force the time-lapse (normally a backup when live data is unavailable); `--time-lapse-after S` starts it after S seconds of history instead of 5 minutes
 - `--path-report out`: check the track every hop follows; writes `out.png`
 - `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker

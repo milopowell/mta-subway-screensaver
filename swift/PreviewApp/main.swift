@@ -10,7 +10,6 @@ import AppKit
 //       [--layout split|closeUp]         layout for this snapshot only
 //       [--magnification M]              magnification (2, 3, 4, 6, 8; omit = Fit stations) for this snapshot only
 //       [--appearance dark|light|system|timeOfDay]  appearance for this snapshot only
-//       [--features alerts,nextTrainRing,…]  trial features switched on for this snapshot only
 //   --dump-placements <file.json>        write every trip's placement (feed, trip_id, x, y, how) and quit
 //   Train data for --snapshot / --dump-placements:
 //       --live                           download the feeds now
@@ -24,6 +23,7 @@ import AppKit
 //   --overpasses ROUTE FROM TO           how many upper lines' bands a hop passes under
 //   --picker-snapshot <file.png> [--home IDs --line ROUTE]  render the home-station picker
 //   --time-lapse                         force the time-lapse (normally a backup when live data is unavailable)
+//       [--time-lapse-after S]           start it after S seconds of history instead of 5 minutes
 //   --simulate-outage FEED[,FEED…]|all   treat those feeds as failed after the first download
 //                                        (in the window, or in --plan-report)
 
@@ -331,8 +331,25 @@ if arguments.contains("--time-lapse-report") {
     let start = Date().timeIntervalSince1970
     var wall = start
     var lastClock: Double?
+    // CPU cost of the main-thread work each glide causes in the app: the time-lapse's own update, and the overpass
+    // bands TrainLayers looks up and combines into a mask (once per map panel).
+    var updateSeconds = 0.0, overpassSeconds = 0.0, maskSeconds = 0.0, masked = 0
     while wall < start + seconds {
+        let t0 = CFAbsoluteTimeGetCurrent()
         let commands = lapse.update(history: history, wall: wall)
+        updateSeconds += CFAbsoluteTimeGetCurrent() - t0
+        for case .travel(_, let path, _) in commands {
+            let t1 = CFAbsoluteTimeGetCurrent()
+            let bands = hooks.locator.overpasses(path: path)
+            let t2 = CFAbsoluteTimeGetCurrent()
+            if let first = bands.first {
+                masked += 1
+                _ = CGPath(rect: CGRect(x: -2000, y: -2000, width: 6000, height: 6000), transform: nil)
+                    .subtracting(bands.dropFirst().reduce(first) { $0.union($1) })
+            }
+            overpassSeconds += t2 - t1
+            maskSeconds += CFAbsoluteTimeGetCurrent() - t2
+        }
         if let clock = lapse.clock(wall: wall), let previous = lastClock, clock < previous { loops += 1 }
         lastClock = lapse.clock(wall: wall)
         for command in commands {
@@ -354,6 +371,9 @@ if arguments.contains("--time-lapse-report") {
         shownCounts.append(position.count)
         wall += 0.25
     }
+    print(String(format: "main-thread work per second of replay: update %.1f ms, overpass lookup %.1f ms, mask shapes %.1f ms "
+                 + "(%d of %d glides pass under a line)", updateSeconds / seconds * 1000, overpassSeconds / seconds * 1000,
+                 maskSeconds / seconds * 1000, masked, glides))
     let sorted = glideSeconds.sorted()
     print(String(format: "replayed %.0f s of wall time at %.0f× (%.0f min of history per %.0f s loop), %d loop restart(s)",
                  seconds, lapse.speed, min(record, lapse.window) / 60, min(record, lapse.window) / lapse.speed, loops))
@@ -514,18 +534,8 @@ if wantsSnapshot != nil || wantsDump != nil {
         layout: value(after: "--layout").flatMap(SubwaySettings.Layout.init) ?? .split)
     settings.magnification = value(after: "--magnification").flatMap(Double.init)  // --magnification 3 (omit = Fit stations)
     if let look = value(after: "--appearance").flatMap(SubwaySettings.Appearance.init) { settings.appearance = look }
-    for name in value(after: "--features")?.split(separator: ",") ?? [] {
-        guard let feature = SubwaySettings.Feature(rawValue: String(name)) else { fail("unknown feature \(name)") }
-        settings.set(feature, on: true)
-    }
     let view = SubwayView(frame: CGRect(origin: .zero, size: size), settings: settings)
     guard let hooks = view.testHooks else { fail("network.json isn't bundled: run the notebook's §8 export and rebuild") }
-    if settings.isOn(.alerts) {  // the alerts card normally fills in a moment after starting: download them now
-        var fetched: [ServiceAlert]?
-        Task { fetched = await ServiceAlerts.fetch() ?? [] }
-        while fetched == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
-        view.showAlerts(fetched!)
-    }
     if let feeds = value(after: "--simulate-outage") {
         view.simulatedOutage = Set(feeds.split(separator: ",").map(String.init))  // snapshot as if those just failed
     }

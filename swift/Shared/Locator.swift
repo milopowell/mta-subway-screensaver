@@ -42,8 +42,8 @@ struct Placement {
 /// `locate()` (§6) step by step. If you change the rules in the notebook, change them here too.
 final class Locator {
     private let net: SubwayNetwork
-    /// route → its patterns, each with a "platform → first position in the pattern" index.
-    private var patternsByRoute: [String: [(stops: [String], trips: Int, index: [String: Int])]] = [:]
+    /// route → its patterns, each with "platform → first position" and "platform → last position" indexes.
+    private var patternsByRoute: [String: [(stops: [String], trips: Int, index: [String: Int], last: [String: Int])]] = [:]
     /// platform → preceding platforms on any route, with trip counts, in first-seen order
     /// (first-seen order reproduces Python's Counter.most_common tie-break).
     private var prevAny: [String: [(stop: String, trips: Int)]] = [:]
@@ -63,9 +63,12 @@ final class Locator {
             return (stroke.order, CGFloat(stroke.halfWidth), points, box)
         }
         for p in network.patterns {
-            var index: [String: Int] = [:]
-            for (k, s) in p.stops.enumerated() where index[s] == nil { index[s] = k }
-            patternsByRoute[p.route, default: []].append((p.stops, p.trips, index))
+            var index: [String: Int] = [:], last: [String: Int] = [:]
+            for (k, s) in p.stops.enumerated() {
+                if index[s] == nil { index[s] = k }
+                last[s] = k
+            }
+            patternsByRoute[p.route, default: []].append((p.stops, p.trips, index, last))
             for (a, b) in zip(p.stops, p.stops.dropFirst()) {
                 var list = prevAny[b, default: []]
                 if let k = list.firstIndex(where: { $0.stop == a }) {
@@ -86,8 +89,11 @@ final class Locator {
         let next8 = upcoming.prefix(8)
         for p in patternsByRoute[route] ?? [] {
             guard let i = p.index[stop] else { continue }
-            let ahead = Set(p.stops[i...])
-            let key = (next8.filter { ahead.contains($0) }.count, p.trips)
+            // How many of the next 8 stops the pattern still visits from `stop` on (a stop is in p.stops[i...]
+            // exactly when its last position is at or after i). Runs for every trip every second, so no sets.
+            var matches = 0
+            for s in next8 where (p.last[s] ?? -1) >= i { matches += 1 }
+            let key = (matches, p.trips)
             if bestKey == nil || key > bestKey! {  // strictly better: the earlier pattern wins ties
                 bestKey = key
                 best = i > 0 ? p.stops[i - 1] : nil

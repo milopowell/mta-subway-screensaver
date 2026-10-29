@@ -4,8 +4,6 @@ import AppKit
 struct Arrival {
     let route: String
     let minutes: Double  // from now
-    /// The train's key on the map ("feed|trip_id", as MotionPlanner uses), for ringing its dot.
-    let key: String
 }
 
 /// The next trains at one station, split by direction, with the MTA's labels for each direction.
@@ -32,7 +30,7 @@ struct StationBoard {
                 guard let first = trip.upcoming.first, first.time >= now - network.settings.staleAfterS,
                       let stop = trip.upcoming.first(where: { $0.stop == platform }), stop.time >= now - 30
                 else { continue }
-                out.append(Arrival(route: trip.routeID, minutes: (stop.time - now) / 60, key: "\(trip.feed)|\(trip.tripID)"))
+                out.append(Arrival(route: trip.routeID, minutes: (stop.time - now) / 60))
             }
             return Array(out.sorted { $0.minutes < $1.minutes }.prefix(perDirection))
         }

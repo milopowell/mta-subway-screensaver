@@ -61,21 +61,6 @@ targets = {
             "COMBINE_HIDPI_IMAGES": "YES",
         },
     },
-    "SubwayWidget": {  # the desktop widget (next trains), embedded in SubwayPreview.app
-        "groups": ["Shared", "Widget", "export"],
-        "product": "SubwayWidget.appex",
-        "file_type": '"wrapper.app-extension"',
-        "product_type": '"com.apple.product-type.app-extension"',
-        "settings": {
-            **common_target,
-            "PRODUCT_BUNDLE_IDENTIFIER": "com.milopowell.subway.preview.widget",  # must start with the app's ID
-            "INFOPLIST_FILE": "WidgetSupport/Info.plist",  # outside Widget/, so it isn't copied in as a resource
-            "INFOPLIST_KEY_CFBundleDisplayName": '"Subway"',
-            "CODE_SIGN_ENTITLEMENTS": "WidgetSupport/SubwayWidget.entitlements",  # sandboxed, with network access
-            "LD_RUNPATH_SEARCH_PATHS": '"@executable_path/../Frameworks @executable_path/../../../../Frameworks"',
-            "SKIP_INSTALL": "YES",
-        },
-    },
     "SubwaySaver": {
         "groups": ["Shared", "Saver", "export"],
         "product": "SubwaySaver.saver",
@@ -118,10 +103,7 @@ project_settings = {
     },
 }
 
-folders = {"Shared": "Shared", "PreviewApp": "PreviewApp", "Sandbox": "Sandbox", "Saver": "Saver", "Widget": "Widget",
-           "export": "../export"}
-# Targets that embed another target's product: host → (embedded target, copy-files destination). 13 = PlugIns.
-embeds = {"SubwayPreview": ("SubwayWidget", 13)}
+folders = {"Shared": "Shared", "PreviewApp": "PreviewApp", "Sandbox": "Sandbox", "Saver": "Saver", "export": "../export"}
 
 
 def settings_block(d, indent):
@@ -135,26 +117,7 @@ lines.append("/* Begin PBXBuildFile section */")
 for t in targets:
     lines.append(f"\t\t{i(t + '.protobuf.buildfile')} /* SwiftProtobuf in Frameworks */ = {{isa = PBXBuildFile; "
                  f"productRef = {i(t + '.protobuf.product')} /* SwiftProtobuf */; }};")
-for host, (inner, _) in embeds.items():
-    lines.append(f"\t\t{i(host + '.embed.buildfile')} /* {targets[inner]['product']} in Embed */ = {{isa = PBXBuildFile; "
-                 f"fileRef = {i(inner + '.product')} /* {targets[inner]['product']} */; "
-                 f"settings = {{ATTRIBUTES = (RemoveHeadersOnCopy, ); }}; }};")
 lines.append("/* End PBXBuildFile section */\n")
-
-lines.append("/* Begin PBXContainerItemProxy section */")
-for host, (inner, _) in embeds.items():
-    lines.append(f"\t\t{i(host + '.proxy')} /* PBXContainerItemProxy */ = {{isa = PBXContainerItemProxy; "
-                 f"containerPortal = {i('project')} /* Project object */; proxyType = 1; "
-                 f"remoteGlobalIDString = {i(inner)}; remoteInfo = {inner}; }};")
-lines.append("/* End PBXContainerItemProxy section */\n")
-
-lines.append("/* Begin PBXCopyFilesBuildPhase section */")
-for host, (inner, folder) in embeds.items():
-    lines.append(f"\t\t{i(host + '.embed')} /* Embed Foundation Extensions */ = {{isa = PBXCopyFilesBuildPhase; "
-                 f"buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = {folder}; "
-                 f"files = ({i(host + '.embed.buildfile')} /* {targets[inner]['product']} in Embed */, ); "
-                 f"name = \"Embed Foundation Extensions\"; runOnlyForDeploymentPostprocessing = 0; }};")
-lines.append("/* End PBXCopyFilesBuildPhase section */\n")
 
 lines.append("/* Begin PBXFileReference section */")
 for t, spec in targets.items():
@@ -186,14 +149,11 @@ lines.append("/* End PBXGroup section */\n")
 lines.append("/* Begin PBXNativeTarget section */")
 for t, spec in targets.items():
     groups = "".join(f"\t\t\t\t{i('group.' + g)} /* {g} */,\n" for g in spec["groups"])
-    embed_phase = f"\t\t\t\t{i(t + '.embed')} /* Embed Foundation Extensions */,\n" if t in embeds else ""
-    dependencies = f"\t\t\t\t{i(t + '.dependency')} /* PBXTargetDependency */,\n" if t in embeds else ""
     lines.append(
         f"\t\t{i(t)} /* {t} */ = {{\n\t\t\tisa = PBXNativeTarget;\n"
         f"\t\t\tbuildConfigurationList = {i(t + '.configs')} /* Build configuration list for PBXNativeTarget \"{t}\" */;\n"
         f"\t\t\tbuildPhases = (\n\t\t\t\t{i(t + '.sources')} /* Sources */,\n\t\t\t\t{i(t + '.frameworks')} /* Frameworks */,\n"
-        f"\t\t\t\t{i(t + '.resources')} /* Resources */,\n{embed_phase}\t\t\t);\n\t\t\tbuildRules = (\n\t\t\t);\n"
-        f"\t\t\tdependencies = (\n{dependencies}\t\t\t);\n"
+        f"\t\t\t\t{i(t + '.resources')} /* Resources */,\n\t\t\t);\n\t\t\tbuildRules = (\n\t\t\t);\n\t\t\tdependencies = (\n\t\t\t);\n"
         f"\t\t\tfileSystemSynchronizedGroups = (\n{groups}\t\t\t);\n\t\t\tname = {t};\n\t\t\tpackageProductDependencies = (\n"
         f"\t\t\t\t{i(t + '.protobuf.product')} /* SwiftProtobuf */,\n\t\t\t);\n"
         f"\t\t\tproductName = {t};\n\t\t\tproductReference = {i(t + '.product')} /* {spec['product']} */;\n"
@@ -225,12 +185,6 @@ for t in targets:
     lines.append(f"\t\t{i(t + '.sources')} /* Sources */ = {{isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; "
                  f"files = (); runOnlyForDeploymentPostprocessing = 0; }};")
 lines.append("/* End PBXSourcesBuildPhase section */\n")
-
-lines.append("/* Begin PBXTargetDependency section */")
-for host, (inner, _) in embeds.items():
-    lines.append(f"\t\t{i(host + '.dependency')} /* PBXTargetDependency */ = {{isa = PBXTargetDependency; "
-                 f"target = {i(inner)} /* {inner} */; targetProxy = {i(host + '.proxy')} /* PBXContainerItemProxy */; }};")
-lines.append("/* End PBXTargetDependency section */\n")
 
 lines.append("/* Begin XCBuildConfiguration section */")
 for cfg, settings in project_settings.items():

@@ -16,13 +16,10 @@ final class SubwaySaverView: ScreenSaverView {
     private var optionsWindow: NSWindow?
 
     override init?(frame: NSRect, isPreview: Bool) {
-        // The screensaver keeps its settings in a file in its own folder, set from its Options sheet (or from the
-        // preview app while it shares them). The first time, it copies what it had saved before.
+        // The screensaver keeps its own preferences, set from its Options sheet.
         let defaults = ScreenSaverDefaults(forModuleWithName: "com.milopowell.subway.saver") ?? .standard
         settings = SubwaySettings(defaults: defaults)
-        settings.file = SubwaySettings.sharedFile(inside: true)
-        settings.seedFile()
-        settings.fixedLayout = .closeUp  // the screensaver always shows the magnified map
+        settings.layout = .closeUp  // the screensaver always shows the magnified map
         content = SubwayView(frame: NSRect(origin: .zero, size: frame.size), settings: settings)
         super.init(frame: frame, isPreview: isPreview)
         content.autoresizingMask = [.width, .height]  // follow the screen's size
@@ -46,9 +43,6 @@ final class SubwaySaverView: ScreenSaverView {
 
     override func startAnimation() {
         super.startAnimation()
-        // With several displays, the others may show the whole map (Options > Other displays).
-        let onMainDisplay = window?.screen == nil || window?.screen == NSScreen.screens.first
-        content.showsWholeMap = !isPreview && !onMainDisplay && settings.otherDisplays == .wholeMap
         content.start()
     }
 
@@ -82,7 +76,7 @@ final class SubwaySaverView: ScreenSaverView {
         header.edgeInsets = NSEdgeInsets(top: 16, left: 12, bottom: 0, right: 12)
         let footer = NSStackView(views: [NSView(), done])
         footer.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 12, right: 12)
-        let appearance = AppearanceOptionsView(settings: settings, showsDisplays: true) { [weak self] in
+        let appearance = AppearanceOptionsView(settings: settings) { [weak self] in
             self?.content.settingsChanged()
         }
         let stack = NSStackView(views: [header, panel.view, appearance, footer])
