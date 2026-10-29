@@ -1,0 +1,15 @@
+# Python packages for the notebook (subway_pipeline.ipynb) and tools/compare_swift_python.py.
+# Tested with Python 3.11 and the versions below (Anaconda's base environment has all but shapely, pyproj and
+# gtfs-realtime-bindings). Install with: pip install -r requirements.txt
+pandas>=1.5
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+shapely>=2.0
+pyproj>=3.6
+networkx>=3.1
+requests>=2.31
+gtfs-realtime-bindings>=1.0
+jupyter>=1.0
+nbconvert>=6.5
+nbformat>=5.7

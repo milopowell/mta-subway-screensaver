@@ -87,27 +87,6 @@ func check() {
 }
 if CommandLine.arguments.contains("--check") { check() }
 
-/// `--check-recording`: downloads the live feed once, saves it as a recording and reads it back, then replays it
-/// through the motion planner for 25 simulated seconds (a one-download recording ends after 30).
-if CommandLine.arguments.contains("--check-recording") {
-    guard let network = try? SubwayNetwork.loadBundled() else { print("network.json isn't bundled"); exit(1) }
-    var result: (feeds: [String: [Trip]], fetchedAt: Double)?
-    Task { result = await FeedClient.fetchEach(settings: network.settings) }
-    while result == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
-    var recording = Recording()
-    let live = result!.feeds.values.flatMap { $0 }
-    recording.add(live, at: result!.fetchedAt)
-    let data = try! JSONEncoder().encode(recording)
-    let back = try! JSONDecoder().decode(Recording.self, from: data)
-    let trips = back.trips(at: back.start + 10)
-    print("one download: \(live.count) trips, \(data.count / 1000) KB as JSON; read back \(trips.count) trips")
-    let planner = MotionPlanner(locator: Locator(network: network))
-    var commands = 0
-    for t in 0..<25 { commands += planner.update(trips: back.trips(at: back.start + Double(t)), now: back.start + Double(t)).count }
-    print("replayed 25 s: \(commands) commands, \(planner.counts.moving) moving, \(planner.counts.stopped) stopped")
-    exit(0)
-}
-
 /// `--snapshot out.png`: opens the sandbox without a window, sends a train, and renders the view after 20 s.
 if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
     _ = NSApplication.shared

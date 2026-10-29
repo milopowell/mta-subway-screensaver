@@ -21,7 +21,6 @@ The Python side does the heavy, once-in-a-while work. The Swift side does only w
 | M4 (brought forward). Split and close-up layouts, home-station picker, next-train board, smooth motion | Done in the preview app; motion is being tuned |
 | M3. Installable screensaver: System Settings, Options sheet, clean stop | Done (demo installed 28 October 2026) |
 | Light mode | Done: Dark, Light, Match the Mac, or Light by day (29 October 2026) |
-| Sandbox recording and scenarios | Built 29 October 2026 |
 | Later | Port smooth motion back to the notebook; Windows version; iPhone and iPad (see below) |
 
 The notebook walkthrough has covered sections 1 and 2; section 3 is next.
@@ -136,6 +135,7 @@ The dot arrives exactly when the MTA's prediction said it would (0 s difference 
 ```
 mta-screensaver/
 ├── README.md                  this file
+├── requirements.txt           Python packages the notebook needs
 ├── subway_pipeline.ipynb      the pipeline (§1–§9 + two appendices); the reference for all rules
 ├── live_demo.ipynb            runs the pipeline and animates trains inline for N seconds (slow, ~2 fps)
 ├── fast_demo.py               matplotlib demo (its window does not appear on this Mac; kept for reference)
@@ -183,6 +183,42 @@ One round of the 8 live feeds is about 140 KB compressed. At one round every 30 
 
 
 ## Running it
+
+### Installing on another Mac
+
+Anyone can build this for their own personal use on their own Mac. The repository holds only the code: the map and the train data are not in it, so each person makes their own copy from the MTA's public files (which also keeps to the map's personal-use terms; see "Permissions and sharing").
+
+What it needs:
+
+- macOS 14 (Sonoma) or later, Apple Silicon or Intel.
+- Xcode 16 or later, from the Mac App Store (the Command Line Tools alone are not enough). No Apple developer account: the build is signed for that Mac only. Xcode downloads the SwiftProtobuf package during the first build.
+- Python 3 with the packages in `requirements.txt`. Anaconda's base environment has most of them; add the rest with `pip install -r requirements.txt`.
+- An internet connection, to build and to run.
+- Access to the repository, which is private.
+
+Steps, from the project folder:
+
+1. Install the Python packages.
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Run the notebook (about 2 minutes). It downloads the schedule, the official map and the station list, and writes `export/`: the dark and light maps and `network.json`.
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace subway_pipeline.ipynb
+```
+
+3. Build and install the screensaver.
+
+```bash
+zsh tools/install_saver.sh
+```
+
+4. Choose **Subway** in System Settings > Screen Saver; **Options…** sets the stations, magnification and appearance.
+
+The preview app and the sandbox are optional; their build commands are below and in `swift/README.md`. Homebrew and the protobuf tools are only needed to regenerate the feed decoder. The schedule in the export expires (currently on 15 May 2027): after that, repeat steps 2 and 3.
 
 ### The notebook
 
@@ -332,6 +368,6 @@ The README screenshot and the screensaver's thumbnail are local only, since they
 
 ## Permissions and sharing
 
-The map is MTA artwork. Its own notice says it may not be reproduced without the MTA's written permission, so the app and screensaver built from it are for personal use only. Appendix A of the notebook draws a generated diagram from the schedule alone. That diagram is the shareable fallback if this project is ever distributed.
+The map is MTA artwork. Its own notice says it may not be reproduced without the MTA's written permission, so the app and screensaver built from it are for personal use only. Share the code, not a built app or screensaver: each person builds their own (see "Installing on another Mac"). Appendix A of the notebook draws a generated diagram from the schedule alone. That diagram is the shareable fallback if this project is ever distributed.
 
 The schedule and the live feeds are public MTA data and need no key.

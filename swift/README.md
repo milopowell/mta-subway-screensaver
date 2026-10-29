@@ -89,11 +89,9 @@ open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwaySand
 - **Trains:** Delay 30 s and Jump ahead 60 s change a train's timetable, as when a real train runs late or the data catches up with it; the change arrives with the next update, so you can watch how the motion corrects. Remove takes a train out of the data.
 - **View:** magnification 1 to 10 times; click the map to center it there.
 - **Feed:** updates every 30 s like the live feed, or every second.
-- **Record live** downloads the live feed every 30 s until you press Stop and save; **Play recording** replays a saved recording at its own time of day, through the same motion code, as often as you like (about 1 MB per minute recorded). Trains you send during a replay join it.
-- **Save scenario** saves the trains you've sent (and how long ago each was sent); **Load scenario** sends them again. Delays and jumps aren't kept.
 - **Dark map / Light map** switches the sandbox's map.
 
-`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Three test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--check-recording` downloads the live feed once, saves and reads it back as a recording, and replays it; `--snapshot out.png` renders the window after sending that train. `Recording.swift` holds the recording and scenario formats.
+`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Two test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--snapshot out.png` renders the window after sending that train.
 
 ## Installing the screensaver
 
