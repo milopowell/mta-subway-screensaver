@@ -194,7 +194,6 @@ What it needs:
 - Xcode 16 or later, from the Mac App Store (the Command Line Tools alone are not enough). No Apple developer account: the build is signed for that Mac only. Xcode downloads the SwiftProtobuf package during the first build.
 - Python 3 with the packages in `requirements.txt`. Anaconda's base environment has most of them; add the rest with `pip install -r requirements.txt`.
 - An internet connection, to build and to run.
-- Access to the repository, which is private.
 
 Steps, from the project folder:
 
