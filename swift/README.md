@@ -10,6 +10,7 @@ The app reads the two files the notebook exports in §8 of `subway_pipeline.ipyn
 |---|---|---|
 | `Shared/` | both targets | Everything below |
 | `PreviewApp/` | SubwayPreview | A normal Mac app that shows `SubwayView` in a window, for development, plus the command-line test options |
+| `Sandbox/` | SubwaySandbox | A separate app for sending trains by hand and trying out new features: no live data, no saved settings (see below) |
 | `Saver/` | SubwaySaver | `SubwaySaverView`, the `.saver` entry point: hosts `SubwayView`, provides the Options sheet, stops on `willstop`; `thumbnail.png` for System Settings |
 | `../export/` | both targets | The notebook's exported map and network data (bundled as resources) |
 
@@ -68,6 +69,25 @@ Preview app options (run the executable inside the app directly):
 - `--simulate-outage FEED[,FEED...]` or `--simulate-outage all`: treat those feeds as failed after the first download (in the window, in `--plan-report`, and in `--snapshot`)
 
 `build/` holds build output and can be deleted at any time.
+
+## Sandbox
+
+SubwaySandbox is a separate app for playing with train motion. It never downloads anything and shares no settings with the preview app or the screensaver; it shares only the code in `Shared/`, so a change to the motion or drawing code shows up here as it will in the screensaver. A feature can also be tried in `Sandbox/` alone first, where nothing else sees it.
+
+```bash
+cd ~/mta-screensaver/swift && xcodebuild -project SubwaySaver.xcodeproj -scheme SubwaySandbox -configuration Release -destination 'platform=macOS' -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages build
+```
+
+```bash
+open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwaySandbox.app
+```
+
+- **Send a train:** pick a route and two of its stations, and a pace (as scheduled, or 2 or 4 times faster). The train waits 15 s, then runs stop by stop on the route's timetable. Send 10 random sends trains on random routes.
+- **Trains:** Delay 30 s and Jump ahead 60 s change a train's timetable, as when a real train runs late or the data catches up with it; the change arrives with the next update, so you can watch how the motion corrects. Remove takes a train out of the data.
+- **View:** magnification 1 to 10 times; click the map to center it there.
+- **Feed:** updates every 30 s like the live feed, or every second.
+
+`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Two test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--snapshot out.png` renders the window after sending that train.
 
 ## Installing the screensaver
 

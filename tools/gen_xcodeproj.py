@@ -46,6 +46,21 @@ targets = {
             "COMBINE_HIDPI_IMAGES": "YES",
         },
     },
+    "SubwaySandbox": {  # a separate app for sending trains by hand (no live data, no saved settings)
+        "groups": ["Shared", "Sandbox", "export"],
+        "product": "SubwaySandbox.app",
+        "file_type": "wrapper.application",
+        "product_type": '"com.apple.product-type.application"',
+        "settings": {
+            **common_target,
+            "PRODUCT_BUNDLE_IDENTIFIER": "com.milopowell.subway.sandbox",
+            "INFOPLIST_KEY_NSPrincipalClass": "NSApplication",
+            "INFOPLIST_KEY_CFBundleDisplayName": '"Subway Sandbox"',
+            "INFOPLIST_KEY_LSApplicationCategoryType": '"public.app-category.utilities"',
+            "LD_RUNPATH_SEARCH_PATHS": '"@executable_path/../Frameworks"',
+            "COMBINE_HIDPI_IMAGES": "YES",
+        },
+    },
     "SubwaySaver": {
         "groups": ["Shared", "Saver", "export"],
         "product": "SubwaySaver.saver",
@@ -88,7 +103,7 @@ project_settings = {
     },
 }
 
-folders = {"Shared": "Shared", "PreviewApp": "PreviewApp", "Saver": "Saver", "export": "../export"}
+folders = {"Shared": "Shared", "PreviewApp": "PreviewApp", "Sandbox": "Sandbox", "Saver": "Saver", "export": "../export"}
 
 
 def settings_block(d, indent):

@@ -8,23 +8,27 @@
 
 /* Begin PBXBuildFile section */
 		1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 868102A57BDB9C69618DC4ED /* SwiftProtobuf */; };
+		EE4E6DE988AE3C2736B85E82 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 7C59F8FFDB71F2EA17C5AE11 /* SwiftProtobuf */; };
 		90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 3A6A6B764C87109823AF9CB0 /* SwiftProtobuf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		1C4E0A09308067BF2103BF2E /* SubwayPreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SubwayPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F4464826A074D4FCA5465608 /* SubwaySandbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SubwaySandbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SubwaySaver.saver; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		B51D13789FB3FEA0D62449FD /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Shared; path = Shared; sourceTree = "<group>"; };
 		5612E59FC4B72BE063F16B37 /* PreviewApp */ = {isa = PBXFileSystemSynchronizedRootGroup; name = PreviewApp; path = PreviewApp; sourceTree = "<group>"; };
+		EAF2CCFEF76A18F51188301A /* Sandbox */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Sandbox; path = Sandbox; sourceTree = "<group>"; };
 		8543D41553E53A575CCE7ED3 /* Saver */ = {isa = PBXFileSystemSynchronizedRootGroup; name = Saver; path = Saver; sourceTree = "<group>"; };
 		0BE2EE54693CE23209956F05 /* export */ = {isa = PBXFileSystemSynchronizedRootGroup; name = export; path = ../export; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		5E10857BBE0656EE4C10C339 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (1B694108EDDB077481A9B15C /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		4017AF71A86820834A51E685 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (EE4E6DE988AE3C2736B85E82 /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		094F710C1850499430DB21DD /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (90842E8418D3C15C1D4D3F75 /* SwiftProtobuf in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
@@ -34,6 +38,7 @@
 			children = (
 				B51D13789FB3FEA0D62449FD /* Shared */,
 				5612E59FC4B72BE063F16B37 /* PreviewApp */,
+				EAF2CCFEF76A18F51188301A /* Sandbox */,
 				8543D41553E53A575CCE7ED3 /* Saver */,
 				0BE2EE54693CE23209956F05 /* export */,
 				1BADDC1D73C1A20F347483E1 /* Products */,
@@ -44,6 +49,7 @@
 			isa = PBXGroup;
 			children = (
 				1C4E0A09308067BF2103BF2E /* SubwayPreview.app */,
+				F4464826A074D4FCA5465608 /* SubwaySandbox.app */,
 				11844BCB0E02B2970F8AC16E /* SubwaySaver.saver */,
 			);
 			name = Products;
@@ -75,6 +81,31 @@
 			);
 			productName = SubwayPreview;
 			productReference = 1C4E0A09308067BF2103BF2E /* SubwayPreview.app */;
+			productType = "com.apple.product-type.application";
+		};
+		196B6B8605B4319B6F14F90F /* SubwaySandbox */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 455E14B0C33728F86838F4A4 /* Build configuration list for PBXNativeTarget "SubwaySandbox" */;
+			buildPhases = (
+				9739095DBB8B6A2BC85DEE35 /* Sources */,
+				4017AF71A86820834A51E685 /* Frameworks */,
+				FE9855D2B342C20ED8687362 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B51D13789FB3FEA0D62449FD /* Shared */,
+				EAF2CCFEF76A18F51188301A /* Sandbox */,
+				0BE2EE54693CE23209956F05 /* export */,
+			);
+			name = SubwaySandbox;
+			packageProductDependencies = (
+				7C59F8FFDB71F2EA17C5AE11 /* SwiftProtobuf */,
+			);
+			productName = SubwaySandbox;
+			productReference = F4464826A074D4FCA5465608 /* SubwaySandbox.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */ = {
@@ -130,6 +161,7 @@
 			projectRoot = "";
 			targets = (
 				02D5EF75D95FCBA94373955A /* SubwayPreview */,
+				196B6B8605B4319B6F14F90F /* SubwaySandbox */,
 				8F8DB75BB732FBF467A5B3D9 /* SubwaySaver */,
 			);
 		};
@@ -137,11 +169,13 @@
 
 /* Begin PBXResourcesBuildPhase section */
 		EC69307397232E651FE0983D /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		FE9855D2B342C20ED8687362 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		E19CD36484D907829B578870 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		242A282DF7ACED89429476A8 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		9739095DBB8B6A2BC85DEE35 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		6B0E1EB731424F0383902F4F /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
@@ -216,6 +250,46 @@
 			};
 			name = Release;
 		};
+		39931DBB786B1B7A5A2ADCA1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.sandbox;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway Sandbox";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Debug;
+		};
+		3209C93880FC6326527224A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				CURRENT_PROJECT_VERSION = 1;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.sandbox;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				INFOPLIST_KEY_CFBundleDisplayName = "Subway Sandbox";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				COMBINE_HIDPI_IMAGES = YES;
+			};
+			name = Release;
+		};
 		DD4B21CA91E3A52069C4BFBC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -279,6 +353,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		455E14B0C33728F86838F4A4 /* Build configuration list for PBXNativeTarget "SubwaySandbox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				39931DBB786B1B7A5A2ADCA1 /* Debug */,
+				3209C93880FC6326527224A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		E7BEE490FC945E2C395AC831 /* Build configuration list for PBXNativeTarget "SubwaySaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -303,6 +386,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		868102A57BDB9C69618DC4ED /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		7C59F8FFDB71F2EA17C5AE11 /* SwiftProtobuf */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8F8A717AFDB9000F65DC8F5A /* XCRemoteSwiftPackageReference "swift-protobuf" */;
 			productName = SwiftProtobuf;
