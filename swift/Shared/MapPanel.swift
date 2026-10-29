@@ -56,6 +56,12 @@ final class MapPanel {
     /// (A moving dot is 1.15 times this; a stopped dot 0.85.)
     var dotDiameter: CGFloat { min(max(dotUnits * pointsPerUnit, dotRange.lowerBound), dotRange.upperBound) }
 
+    /// Where glides pass under another line (see TrainLayers.overpasses).
+    var overpasses: (([CGPoint]) -> [CGPath])? {
+        get { trains.overpasses }
+        set { trains.overpasses = newValue }
+    }
+
     /// Map units → this panel's points (both with the origin at the bottom-left).
     func toView(_ p: CGPoint) -> CGPoint {
         CGPoint(x: (p.x - mapRect.minX) * pointsPerUnit, y: (p.y - mapRect.minY) * pointsPerUnit)

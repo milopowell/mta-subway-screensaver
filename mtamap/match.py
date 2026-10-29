@@ -40,19 +40,22 @@ def norm_name(s):
     return re.sub(r"[^a-z0-9]", "", s)
 
 
-def route_color_lines(drawing, COLOR):
-    """{color hex: [polyline, ...]} for the thick route strokes, pairing map colors with GTFS colors one-to-one."""
+def route_strokes(drawing, COLOR):
+    """The thick route strokes in drawing order, each with its color paired to a GTFS route color (one-to-one, by
+    Hungarian assignment) and its width including the casing drawn under it (the gap that separates it from lines it
+    crosses). Returns ([(index, color, width, polylines)], {map color: route color})."""
     groups = sorted(set(COLOR.values()))
     gray = COLOR["L"]
+    paths = drawing["paths"]
     strokes = []
-    for p in drawing["paths"]:
+    for i, p in enumerate(paths):
         s = p["stroke"]
         if s is None or p["lw"] < 6.5 or O.cropped(p["lo"], p["hi"]) or p.get("casing"):
             continue
         if O.is_neutral(s) and not 0.35 < O.lum(s[:3]) < 0.75:
             continue
-        strokes.append((tuple(round(x, 2) for x in s[:3]), p))
-    map_colors = sorted({c for c, _ in strokes if not O.is_neutral(c)})
+        strokes.append((i, tuple(round(x, 2) for x in s[:3]), p))
+    map_colors = sorted({c for _, c, _ in strokes if not O.is_neutral(c)})
     # cluster nearly identical map colors
     reps = []
     for c in map_colors:
@@ -70,11 +73,22 @@ def route_color_lines(drawing, COLOR):
         r = min(reps, key=lambda r: np.linalg.norm(np.array(r) - np.array(c)))
         return rep_to_group.get(r)
 
-    lines = defaultdict(list)
-    for c, p in strokes:
+    out = []
+    for i, c, p in strokes:
         gname = group_of(c)
-        if gname:
-            lines[gname] += flatten(p["segs"])
+        if not gname:
+            continue
+        casing = [q["lw"] for q in paths[max(i - 2, 0):i] if q.get("casing") and q["segs"] == p["segs"]]
+        out.append((i, gname, max([p["lw"]] + casing), flatten(p["segs"])))
+    return out, rep_to_group
+
+
+def route_color_lines(drawing, COLOR):
+    """{color hex: [polyline, ...]} for the thick route strokes, pairing map colors with GTFS colors one-to-one."""
+    strokes, rep_to_group = route_strokes(drawing, COLOR)
+    lines = defaultdict(list)
+    for _, color, _, polylines in strokes:
+        lines[color] += polylines
     return dict(lines), rep_to_group
 
 

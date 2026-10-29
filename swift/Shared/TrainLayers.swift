@@ -11,6 +11,9 @@ import QuartzCore
 /// up out of the station and slowing into the next.
 final class TrainLayers {
     let container = CALayer()
+    /// The upper lines' bands (map units) a glide's path passes under (Locator.overpasses): the part of the dot inside
+    /// them is hidden, so it slips under the line's black border and comes out the other side.
+    var overpasses: (([CGPoint]) -> [CGPath])?
     private var layers: [String: CALayer] = [:]
     private var looks: [String: TrainLook] = [:]
     /// The panel's base dot size in points (MapPanel.dotDiameter); each look is a multiple of it.
@@ -51,9 +54,10 @@ final class TrainLayers {
                 }
                 let slide = animated && distance(now, target) > 0.5 && distance(now, target) <= TrainLayers.fadeDistance
                 layer.removeAnimation(forKey: "travel")
+                layer.mask = nil  // standing still: never under a line
                 CATransaction.begin()
                 if slide {
-                    CATransaction.setAnimationDuration(0.5)  // close: slide over instead of jumping
+                    CATransaction.setAnimationDuration(1.0)  // close: slide over instead of jumping
                 } else {
                     CATransaction.setDisableActions(true)
                 }
@@ -88,6 +92,40 @@ final class TrainLayers {
                 glide.duration = duration
                 layer.add(glide, forKey: "travel")
 
+                // Under an overpass: a mask hides the part of the dot inside the upper lines' bands. The bands stay put
+                // on the map while the dot moves, so the mask moves the opposite way, in step with the glide.
+                if let bands = overpasses?(path), let first = bands.first {
+                    let origin = toView(.zero), scale = toView(CGPoint(x: 1, y: 0)).x - origin.x
+                    var toPoints = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: origin.x, ty: origin.y)
+                    let covered = bands.dropFirst().reduce(first) { $0.union($1) }.copy(using: &toPoints) ?? first
+                    let everywhere = CGPath(rect: container.bounds.insetBy(dx: -2000, dy: -2000), transform: nil)
+                    let half = layer.bounds.width / 2
+                    // A container point q seen from the dot centered at p sits at q - p + half; the mask holds the
+                    // container picture, so its offset is half - p.
+                    func offset(_ p: CGPoint) -> CGPoint { CGPoint(x: half - p.x, y: half - p.y) }
+                    let mask = CAShapeLayer()
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    mask.path = everywhere.subtracting(covered)
+                    mask.anchorPoint = .zero
+                    mask.bounds = .zero
+                    mask.position = offset(points[points.count - 1])
+                    layer.mask = mask
+                    CATransaction.commit()
+                    let follow = CGMutablePath()
+                    let drawn = [start] + (distance(start, points[0]) > 0.5 ? points : Array(points.dropFirst()))
+                    follow.move(to: offset(drawn[0]))
+                    for p in drawn.dropFirst() { follow.addLine(to: offset(p)) }
+                    let move = CAKeyframeAnimation(keyPath: "position")
+                    move.path = follow
+                    move.calculationMode = .paced
+                    move.timingFunction = glide.timingFunction
+                    move.duration = duration
+                    mask.add(move, forKey: "follow")
+                } else {
+                    layer.mask = nil
+                }
+
             case .remove(let key):
                 looks[key] = nil
                 guard let layer = layers.removeValue(forKey: key) else { continue }
@@ -105,7 +143,7 @@ final class TrainLayers {
 
     private func fadeOut(_ layer: CALayer) {
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.6)
+        CATransaction.setAnimationDuration(1.0)
         CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
         layer.opacity = 0
         CATransaction.commit()
@@ -143,7 +181,7 @@ final class TrainLayers {
         container.addSublayer(layer)
         CATransaction.commit()
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.6)
+        CATransaction.setAnimationDuration(1.0)
         layer.opacity = 1  // fade in where it is (no popping)
         CATransaction.commit()
         layers[key] = layer

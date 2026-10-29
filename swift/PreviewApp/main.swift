@@ -19,6 +19,7 @@ import AppKit
 //   --time-lapse-report [--record S --seconds S]  record live history, replay it, and check the replay is smooth
 //   --path-report <file>                 check the track every hop is drawn along; writes <file>.png
 //   --path-audit [--seconds S]           run live motion and report off-track glides, snaps, fades, slow glides
+//   --overpasses ROUTE FROM TO           how many upper lines' bands a hop passes under
 //   --picker-snapshot <file.png> [--home IDs --line ROUTE]  render the home-station picker
 //   --time-lapse                         force the time-lapse (normally a backup when live data is unavailable)
 //   --simulate-outage FEED[,FEED…]|all   treat those feeds as failed after the first download
@@ -60,6 +61,18 @@ func commandLineTrips(network: SubwayNetwork) -> (trips: [Trip], now: Double)? {
     return nil
 }
 
+if let i = arguments.firstIndex(of: "--overpasses"), i + 3 < arguments.count {
+    // How many upper lines' bands a hop passes under: --overpasses ROUTE FROM_STATION TO_STATION (e.g. 1 125 126).
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let (route, a, b) = (arguments[i + 1], arguments[i + 2], arguments[i + 3])
+    let (line, followed) = hooks.locator.hopLine(route: route, from: a, to: b)
+    let bands = hooks.locator.overpasses(path: line.points)
+    let name = { (id: String) in hooks.network.stations[id]?.name ?? id }
+    print("\(route) \(name(a)) → \(name(b)): track \(followed ? "followed" : "straight"), passes under \(bands.count) band(s)")
+    for band in bands { print("  band around (\(Int(band.boundingBox.midX)), \(Int(band.boundingBox.midY)))") }
+    exit(0)
+}
+
 if arguments.contains("--path-audit") {
     // Runs the live motion (MotionPlanner, a download every 30 s like the app) for --seconds (default 180) and
     // reports anything that looks off: glides that don't follow the drawn track, dots that snap (move instantly)
@@ -75,6 +88,7 @@ if arguments.contains("--path-audit") {
     var position: [String: CGPoint] = [:]  // where each dot is (or is gliding to)
     var routeOf: [String: String] = [:]
     var snaps: [(distance: CGFloat, text: String)] = [], fades = 0, reappeared: [String: Double] = [:]
+    var downloads: [Double] = [], snapTimes: [Double] = [], fadeTimes: [Double] = []
     let start = Date().timeIntervalSince1970
     var tick = start, lastDownload = -1e9, trips: [Trip] = []
     while tick < start + seconds {
@@ -88,6 +102,7 @@ if arguments.contains("--path-audit") {
             trips = cache.trips
             for trip in trips { routeOf["\(trip.feed)|\(trip.tripID)"] = trip.routeID }
             lastDownload = tick
+            downloads.append(tick)
         }
         for command in planner.update(trips: trips, now: tick) {
             switch command {
@@ -95,6 +110,7 @@ if arguments.contains("--path-audit") {
                 if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 3 {
                     let d = hypot(p.x - point.x, p.y - point.y)
                     snaps.append((d, String(format: "%@ snapped %.0f units (to %.0f, %.0f)", routeOf[key] ?? "?", d, point.x, point.y)))
+                    snapTimes.append(tick)
                 }
                 position[key] = point
             case .travel(let key, let path, _):
@@ -104,7 +120,7 @@ if arguments.contains("--path-audit") {
                 }
                 position[key] = path.last
             case .remove(let key):
-                if position[key] != nil { fades += 1; reappeared[key] = tick }
+                if position[key] != nil { fades += 1; reappeared[key] = tick; fadeTimes.append(tick) }
                 position[key] = nil
             }
         }
@@ -112,6 +128,20 @@ if arguments.contains("--path-audit") {
     }
     let glides = planner.glideLog ?? []
     print(String(format: "%.0f s of live motion: %d glides", seconds, glides.count))
+    // What happens right after each download (within 3 s) compared with the rest of the time: sudden changes
+    // bunched at downloads are what reads as "jumping every 30 seconds".
+    func afterDownload(_ t: Double) -> Bool { downloads.contains { t >= $0 && t - $0 < 3 } }
+    let windowSeconds = Double(downloads.count) * 3, otherSeconds = max(seconds - windowSeconds, 1)
+    func rates(_ times: [Double]) -> String {
+        let near = times.filter(afterDownload).count
+        return String(format: "%.1f/s in the 3 s after a download, %.2f/s otherwise", Double(near) / max(windowSeconds, 1),
+                      Double(times.count - near) / otherSeconds)
+    }
+    let fast = glides.filter { $0.length / max($0.end - $0.start, 0.01) > 2.5 }
+    print("  catch-up glides: " + rates(glides.filter { $0.kind == .catchUp }.map(\.start)))
+    print("  fast glides (over 2.5 units/s): " + rates(fast.map(\.start)))
+    print("  fades (a dot leaving one place for another): " + rates(fadeTimes))
+    print("  position changes (slides): " + rates(snapTimes))
     var byKind: [String: Int] = [:]
     for g in glides { byKind[g.kind.rawValue, default: 0] += 1 }
     print("  by kind: \(byKind.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
@@ -148,6 +178,13 @@ if arguments.contains("--path-audit") {
         print(String(format: "  %-5@  %6d  %11d  %8d  %6d", route, r.total, r.own, r.rerouted, r.odd))
     }
     for o in odd.sorted(by: { $0.distance > $1.distance }).prefix(15) { print("  " + o.text) }
+
+    let under = glides.filter { !hooks.locator.overpasses(path: $0.path).isEmpty }
+    print("\nGlides passing under another line (the dot slips under the overpass): \(under.count)")
+    for g in under.prefix(10) {
+        print(String(format: "  %@ %@ → %@: under %d band(s)", g.route, name(g.from), name(g.to),
+                     hooks.locator.overpasses(path: g.path).count))
+    }
 
     print("\nSlowest glides (longest on screen):")
     for g in glides.sorted(by: { ($0.end - $0.start) > ($1.end - $1.start) }).prefix(10) {

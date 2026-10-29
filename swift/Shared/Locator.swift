@@ -55,6 +55,13 @@ final class Locator {
     init(network: SubwayNetwork) {
         net = network
         lines = network.routeLines.mapValues { $0.map { Polyline($0.map(CGPoint.init)) } }
+        strokes = (network.routeStrokes ?? []).map { stroke in
+            let points = stroke.points.map(CGPoint.init)
+            let xs = points.map(\.x), ys = points.map(\.y)
+            let box = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0, width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                             height: (ys.max() ?? 0) - (ys.min() ?? 0))
+            return (stroke.order, CGFloat(stroke.halfWidth), points, box)
+        }
         for p in network.patterns {
             var index: [String: Int] = [:]
             for (k, s) in p.stops.enumerated() where index[s] == nil { index[s] = k }
@@ -276,9 +283,121 @@ final class Locator {
         return false
     }
 
+    /// Each route line as the map draws it (SubwayNetwork.Stroke), with its bounding box for quick rejection.
+    private let strokes: [(order: Int, half: CGFloat, points: [CGPoint], box: CGRect)]
+
+    /// Where a glide's path passes under another line (an overpass on the map, such as the A/C/E and B/D/F/M over the
+    /// 1/2/3 at Columbus Circle), as the outlines of the upper lines' bands in map units: the stretch of the upper line
+    /// near the crossing, as wide as the line with its black casing. TrainLayers hides the part of the dot inside them.
+    ///
+    /// Where the path crosses another line's stroke, the train is under it if its own line there is drawn earlier, or
+    /// isn't drawn at all: the map draws some lines continuously and overdraws them (the 2/3 at Columbus Circle), and
+    /// leaves a gap in others where they pass under (the 1 there), which the track network bridges.
+    func overpasses(path: [CGPoint]) -> [CGPath] {
+        guard path.count > 1 else { return [] }
+        let line = Polyline(path)
+        guard line.length > 0 else { return [] }
+        let xs = path.map(\.x), ys = path.map(\.y)
+        let box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        // Points along the path, one per map unit.
+        let count = Int(line.length) + 1
+        let samples = (0...count).map { line.point(at: CGFloat($0) * line.length / CGFloat(count)) }
+        var bands: [CGPath] = []
+        for s in strokes where s.points.count > 1 && s.box.insetBy(dx: -s.half, dy: -s.half).intersects(box) {
+            // Runs of the path inside this line's band (within its half-width, casing included). Testing the band
+            // rather than the center line also catches a line drawn in two pieces that meet where the path crosses
+            // (the orange B/D at Columbus Circle, which the 1 passes under right at such a joint).
+            let near = samples.map { Locator.nearest(on: s.points, to: $0) }
+            var k = 0
+            while k < samples.count {
+                guard near[k].distance < s.half else { k += 1; continue }
+                let runStart = k
+                var end = k
+                while end + 1 < samples.count, near[end + 1].distance < s.half { end += 1 }
+                let mid = (runStart...end).min { near[$0].distance < near[$1].distance }!
+                k = end + 1
+                let direction = samples[min(mid + 1, samples.count - 1)] - samples[max(mid - 1, 0)]
+                let segment = near[mid].segment
+                // Following the line (on its center for 8+ map units) rather than crossing it: its own track. A line
+                // only brushed in passing doesn't count, even where it points the same way (the orange B/D curve,
+                // which the 1 passes under at the point where the curve runs diagonally, like the 1).
+                if (runStart...end).filter({ near[$0].distance < 1.5 }).count >= 8 { continue }
+                // The train's own line at the crossing: another stroke running along the path through this point.
+                let at = samples[mid]
+                let own = strokes.first { o in
+                    o.order != s.order && o.box.insetBy(dx: -2, dy: -2).contains(at)
+                        && Locator.runsAlong(o.points, at: at, direction: direction)
+                }
+                if let own, own.order > s.order { continue }  // drawn later: the train is on top
+                bands.append(Locator.band(s.points, from: segment, around: near[mid].point, half: s.half))
+            }
+        }
+        return bands
+    }
+
+    /// The nearest point of a polyline to `point`: its distance, the point, and the segment it lies on.
+    private static func nearest(on points: [CGPoint], to point: CGPoint) -> (distance: CGFloat, point: CGPoint, segment: Int) {
+        var best = (distance: CGFloat.infinity, point: points[0], segment: 0)
+        for j in 0..<(points.count - 1) {
+            let a = points[j], ab = points[j + 1] - a, length2 = ab.x * ab.x + ab.y * ab.y
+            let t = length2 > 0 ? min(max(((point.x - a.x) * ab.x + (point.y - a.y) * ab.y) / length2, 0), 1) : 0
+            let q = CGPoint(x: a.x + t * ab.x, y: a.y + t * ab.y)
+            let d = hypot(q.x - point.x, q.y - point.y)
+            if d < best.distance { best = (d, q, j) }
+        }
+        return best
+    }
+
+    /// True if two directions are within about 25° of each other (either way round).
+    private static func aligned(_ a: CGPoint, _ b: CGPoint) -> Bool {
+        let la = hypot(a.x, a.y), lb = hypot(b.x, b.y)
+        guard la > 0, lb > 0 else { return false }
+        return abs((a.x * b.x + a.y * b.y) / (la * lb)) > 0.9
+    }
+
+    /// True if a polyline passes within 1.5 map units of `point` along `direction`.
+    private static func runsAlong(_ points: [CGPoint], at point: CGPoint, direction: CGPoint) -> Bool {
+        for (a, b) in zip(points, points.dropFirst()) {
+            let ab = b - a, length2 = ab.x * ab.x + ab.y * ab.y
+            guard length2 > 0 else { continue }
+            let t = min(max(((point.x - a.x) * ab.x + (point.y - a.y) * ab.y) / length2, 0), 1)
+            let near = CGPoint(x: a.x + t * ab.x, y: a.y + t * ab.y)
+            if hypot(near.x - point.x, near.y - point.y) < 1.5, aligned(ab, direction) { return true }
+        }
+        return false
+    }
+
+    /// The band of a stroke around a crossing: its stretch within about 25 map units of the point, as wide as the line
+    /// with its casing (with rounded ends, so the bands of two pieces of one line leave no gap where they meet).
+    private static func band(_ points: [CGPoint], from j: Int, around hit: CGPoint, half: CGFloat) -> CGPath {
+        /// Points from `hit` along the stroke (backward through vertices j, j-1, … or forward through j+1, …), cut off
+        /// exactly 25 map units away.
+        func walk(_ indices: [Int]) -> [CGPoint] {
+            var out: [CGPoint] = [], walked: CGFloat = 0, last = hit
+            for k in indices {
+                let step = hypot(points[k].x - last.x, points[k].y - last.y)
+                if walked + step >= 25 {
+                    let t = step > 0 ? (25 - walked) / step : 0
+                    out.append(CGPoint(x: last.x + (points[k].x - last.x) * t, y: last.y + (points[k].y - last.y) * t))
+                    break
+                }
+                walked += step
+                last = points[k]
+                out.append(points[k])
+            }
+            return out
+        }
+        let line = CGMutablePath()
+        line.addLines(between: walk(Array(stride(from: j, through: 0, by: -1))).reversed() + [hit]
+                      + walk(Array((j + 1)..<points.count)))
+        return line.copy(strokingWithWidth: half * 2, lineCap: .round, lineJoin: .round, miterLimit: 2)  // round ends close joints
+    }
+
     /// The station of a platform (nil if it isn't on the map).
     func stationOf(_ platform: String) -> String? {
         guard let s = net.platforms[platform], net.stations[s] != nil else { return nil }
         return s
     }
 }
+
+private func - (a: CGPoint, b: CGPoint) -> CGPoint { CGPoint(x: a.x - b.x, y: a.y - b.y) }

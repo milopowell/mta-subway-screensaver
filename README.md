@@ -85,7 +85,7 @@ Real trains move very slowly at map scale: a typical hop is about 37 map units i
 
 - Each hop is one continuous Core Animation glide along the track. It eases out of the station and into the next one, and is never interrupted halfway.
 - Trains glide at about 1.5 map units per second, roughly four times real speed, so a typical hop takes about 25 seconds. A train leaves its station at the moment that makes it arrive at the predicted time, so the extra speed becomes extra waiting at stations.
-- Dots never jump backwards. When fresh data disagrees with the animation, a train that is ahead waits longer, and a train that is behind catches up hop by hop.
+- Dots never jump backwards. When fresh data disagrees with the animation, a train that is ahead waits longer, and a train that is behind catches up hop by hop. Corrections (catching up, fading to a new place, moving a parked dot, fading out a train that left the data) each wait a delay of up to 12 seconds, fixed per train, so they trickle out after each download instead of all happening at once every 30 seconds.
 - A moving train is a white dot with a soft glow, about a third larger than a stopped train, which is gray. Parked trains are smaller and darker. Size and color change together over 0.4 seconds.
 
 ### Time-lapse
@@ -105,6 +105,8 @@ On live data (95 seconds, 4 feed downloads): about 80 trains are gliding at any 
 Each hop is drawn along the route's colored line on the official map. The PDF draws each color in several pieces (109 in all), so `mtamap.match.TrackNetwork` joins them: ends that touch, and ends that point straight at each other across a gap (where a line passes under a station's label box). A hop is the shortest route through that network between the two stations' circles. §8 exports every hop's path (`hop_paths` in network.json) so the app draws exactly the same tracks. 1,956 of the 2,084 hops in the stop patterns (94%) follow the track; the rest, about 1.5% of train trips, are drawn as straight lines, mostly around the Atlantic Av-Barclays Ctr transfer box.
 
 A train rerouted onto another line's tracks (common at night and on weekends: the E through the 63 St tunnel, the F and D on the 8 Av line) can't follow its own colored line. It then follows the track of a route that normally runs between the two stations, or two such stretches through one station in between (an express skipping a stop). §8 exports these as `pair_paths`. On a night with several reroutes, `--path-audit` measured 1 glide in 366 off the drawn track.
+
+Where the map draws one line over another (an overpass, such as the A/C/E and B/D/F/M over the 1/2/3 at Columbus Circle), trains on the lower line pass under it. §8 exports every route stroke in the map's drawing order (`route_strokes`: later strokes are on top, with each line's width including its black casing). Where a glide's path enters another line's band (within its half-width, black casing included), the train is under it if its own line is drawn earlier there (the 2/3 at Columbus Circle, overdrawn) or not drawn at all (the 1 there, which the map leaves out under the band and the track network bridges). Testing the band rather than the center line also catches a line drawn in two pieces that meet where the train passes (the orange B/D curve over the 1). A line the path follows for 8 map units or more is its own track, not a crossing. The app then masks the dot inside that line's band, so it slips under the black border and comes out on the far side; `--overpasses ROUTE FROM TO` lists the bands a hop passes under.
 
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. `--path-report` lists the remaining straight hops and draws them over the map.
 
@@ -256,7 +258,8 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | `FOCUS_VIEWS` | notebook §1 (exported) | 5 presets | Named groups of stations for magnified views |
 | `cruiseSpeed` | `swift/Shared/MotionPlanner.swift` | 1.5 | Glide speed in map units per second. Higher means brisker motion and longer station waits; lower keeps dots closer to the real trains mid-hop |
 | `WATER`, `PARKS` | `mtamap/style.py` | dark navy, dark green | Tints for water and parks on the black map (re-run §8 and rebuild after changing) |
-| `catchUpSpeed` | `swift/Shared/MotionPlanner.swift` | 6 | Fastest glide when a train is behind the data |
+| `catchUpSpeed` | `swift/Shared/MotionPlanner.swift` | 3.5 | Fastest glide when a train is behind the data |
+| `correctionSpread` | `swift/Shared/MotionPlanner.swift` | 12 | Corrections wait up to this many seconds (fixed per train), so they don't all happen right after a download |
 | `minTravelSeconds` | `swift/Shared/MotionPlanner.swift` | 4 | Shortest glide, so very short hops do not flick past |
 | `maxTravelSeconds` | `swift/Shared/MotionPlanner.swift` | 40 | Longest glide: hops drawn long on the map (96 St to 110 St on the 2 and 3) glide faster instead of crawling |
 | `pollInterval` | `swift/Shared/FeedClient.swift` (FeedHub) | 30 | Seconds between feed downloads |

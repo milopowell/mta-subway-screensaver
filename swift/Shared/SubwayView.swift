@@ -126,6 +126,9 @@ final class SubwayView: NSView {
         }
         if let network {
             nextTrains.routeColors = network.routes.mapValues { (NSColor(hex: $0.color), NSColor(hex: $0.textColor)) }
+            for panel in [fullPanel, zoomPanel] {  // trains pass under overpasses on the map
+                panel?.overpasses = { [weak locator = self.locator] path in locator?.overpasses(path: path) ?? [] }
+            }
         }
         addSubview(nextTrains)
 

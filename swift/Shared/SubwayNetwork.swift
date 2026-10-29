@@ -79,12 +79,22 @@ struct SubwayNetwork: Decodable {
     /// "fromStation|toStation" → the track between neighboring stations, for a train rerouted onto another
     /// line's tracks (its own route has no path there).
     let pairPaths: [String: [[Double]]]?
+    /// Each route line as the map draws it, in drawing order (later strokes are on top): for overpasses.
+    let routeStrokes: [Stroke]?
+
+    struct Stroke: Decodable {
+        let order: Int  // position in the map's drawing order
+        let color: String
+        let halfWidth: Double  // half the line's width, its black casing included
+        let points: [[Double]]
+        enum CodingKeys: String, CodingKey { case order, color, points, halfWidth = "half_width" }
+    }
     let focusViews: [String: [String]]  // view name → station IDs
 
     enum CodingKeys: String, CodingKey {
         case meta, settings, routes, platforms, stations, patterns
         case hopTimes = "hop_times", routeLines = "route_lines", focusViews = "focus_views", hopPaths = "hop_paths",
-             pairPaths = "pair_paths"
+             pairPaths = "pair_paths", routeStrokes = "route_strokes"
     }
 
     /// Loads network.json from the app's or screensaver's bundled resources.
