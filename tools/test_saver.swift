@@ -80,6 +80,9 @@ if let soakSeconds {
     var samples: [(minute: Double, mb: Double)] = []
     let start = Date()
     while Date().timeIntervalSince(start) < soakSeconds {
+        // The real screensaver ending (macOS's "will stop" message reaches every Subway screensaver, this one
+        // included) stops this copy too: start it again, as macOS does with the next screensaver session.
+        saver.startAnimation()
         let cpu = run(60)
         let minute = Date().timeIntervalSince(start) / 60
         let mb = footprintMB()
