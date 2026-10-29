@@ -164,15 +164,16 @@ class OfficialMap:
         return self._hop_cache[key]
 
     # ---- drawing ----
-    def draw(self, ax, xlim=(0, PAGE_W), ylim=(0, MAP_H)):
-        """Draw the black-background map on a matplotlib axis (page coordinates, 1 unit = 1 pt on paper)."""
+    def draw(self, ax, xlim=(0, PAGE_W), ylim=(0, MAP_H), theme="dark"):
+        """Draw the map on a matplotlib axis (page coordinates, 1 unit = 1 pt on paper): black background (theme
+        "dark") or the paper map's colors ("light")."""
         ax.set_xlim(*xlim)
         ax.set_ylim(*ylim)
-        ax.set_facecolor("black")
+        ax.set_facecolor("black" if theme == "dark" else S.LAND_LIGHT)
         ax.set_aspect("equal")
         ax.axis("off")
         fig = ax.figure
         bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
         pts_per_unit = min(bbox.width * 72 / (xlim[1] - xlim[0]), bbox.height * 72 / (ylim[1] - ylim[0]))
-        S.draw_official(ax, self.drawing, self.bullets, pts_per_unit, pts_per_unit)
+        S.draw_official(ax, self.drawing, self.bullets, pts_per_unit, pts_per_unit, theme=theme)
         return pts_per_unit

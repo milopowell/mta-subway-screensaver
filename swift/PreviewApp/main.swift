@@ -9,6 +9,8 @@ import AppKit
 //       [--home ID,ID…]                  home stations for this snapshot only (the saved choice is unchanged)
 //       [--layout split|closeUp]         layout for this snapshot only
 //       [--magnification M]              magnification (2, 3, 4, 6, 8; omit = Fit stations) for this snapshot only
+//       [--appearance dark|light|system|timeOfDay]  appearance for this snapshot only
+//       [--features alerts,nextTrainRing,…]  trial features switched on for this snapshot only
 //   --dump-placements <file.json>        write every trip's placement (feed, trip_id, x, y, how) and quit
 //   Train data for --snapshot / --dump-placements:
 //       --live                           download the feeds now
@@ -511,8 +513,19 @@ if wantsSnapshot != nil || wantsDump != nil {
         homeStations: value(after: "--home")?.split(separator: ",").map(String.init) ?? SubwaySettings().homeStations,
         layout: value(after: "--layout").flatMap(SubwaySettings.Layout.init) ?? .split)
     settings.magnification = value(after: "--magnification").flatMap(Double.init)  // --magnification 3 (omit = Fit stations)
+    if let look = value(after: "--appearance").flatMap(SubwaySettings.Appearance.init) { settings.appearance = look }
+    for name in value(after: "--features")?.split(separator: ",") ?? [] {
+        guard let feature = SubwaySettings.Feature(rawValue: String(name)) else { fail("unknown feature \(name)") }
+        settings.set(feature, on: true)
+    }
     let view = SubwayView(frame: CGRect(origin: .zero, size: size), settings: settings)
     guard let hooks = view.testHooks else { fail("network.json isn't bundled: run the notebook's §8 export and rebuild") }
+    if settings.isOn(.alerts) {  // the alerts card normally fills in a moment after starting: download them now
+        var fetched: [ServiceAlert]?
+        Task { fetched = await ServiceAlerts.fetch() ?? [] }
+        while fetched == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        view.showAlerts(fetched!)
+    }
     if let feeds = value(after: "--simulate-outage") {
         view.simulatedOutage = Set(feeds.split(separator: ",").map(String.init))  // snapshot as if those just failed
     }

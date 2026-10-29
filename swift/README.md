@@ -11,6 +11,7 @@ The app reads the two files the notebook exports in §8 of `subway_pipeline.ipyn
 | `Shared/` | both targets | Everything below |
 | `PreviewApp/` | SubwayPreview | A normal Mac app that shows `SubwayView` in a window, for development, plus the command-line test options |
 | `Sandbox/` | SubwaySandbox | A separate app for sending trains by hand and trying out new features: no live data, no saved settings (see below) |
+| `Widget/` | SubwayWidget | The desktop widget (next trains at one station), built into SubwayPreview.app; its Info.plist and entitlements are in `WidgetSupport/` |
 | `Saver/` | SubwaySaver | `SubwaySaverView`, the `.saver` entry point: hosts `SubwayView`, provides the Options sheet, stops on `willstop`; `thumbnail.png` for System Settings |
 | `../export/` | both targets | The notebook's exported map and network data (bundled as resources) |
 
@@ -36,7 +37,10 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
 | `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker |
-| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification |
+| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance, other displays, trial features; in preferences or in the screensaver's shared settings file |
+| `Theme.swift` | Dark and light: which map to show and the colors of the dots, board, cards and notes |
+| `AppearanceOptions.swift` | The appearance and trial-feature controls in the screensaver's Options sheet |
+| `ServiceAlerts.swift` | Downloads the MTA's alerts feed and draws the alerts card |
 
 ## Building and running
 
@@ -57,6 +61,7 @@ Preview app options (run the executable inside the app directly):
 - `--fullscreen`: start in full screen (Control-Command-F toggles it, Command-Q quits)
 - `--snapshot out.png [--width 1512 --height 982]`: render the view to a PNG and quit, without a window
 - `--home ID,ID`, `--layout split|closeUp` and `--magnification M`: home stations, layout and magnification for a snapshot only
+- `--appearance dark|light|system|timeOfDay` and `--features alerts,nextTrainRing,drift,largeClock,quietHours`: appearance and trial features for a snapshot only
 - `--dump-placements out.json`: write every trip's placement (feed, trip_id, x, y, how) and quit
 - train data for those two: `--live` (download now), or `--feeds-dir DIR --now UNIXTIME` (saved feeds `DIR/<feed>.pb`)
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move
@@ -86,8 +91,11 @@ open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwaySand
 - **Trains:** Delay 30 s and Jump ahead 60 s change a train's timetable, as when a real train runs late or the data catches up with it; the change arrives with the next update, so you can watch how the motion corrects. Remove takes a train out of the data.
 - **View:** magnification 1 to 10 times; click the map to center it there.
 - **Feed:** updates every 30 s like the live feed, or every second.
+- **Record live** downloads the live feed every 30 s until you press Stop and save; **Play recording** replays a saved recording at its own time of day, through the same motion code, as often as you like (about 1 MB per minute recorded). Trains you send during a replay join it.
+- **Save scenario** saves the trains you've sent (and how long ago each was sent); **Load scenario** sends them again. Delays and jumps aren't kept.
+- **Dark map / Light map** switches the sandbox's map.
 
-`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Two test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--snapshot out.png` renders the window after sending that train.
+`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Three test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--check-recording` downloads the live feed once, saves and reads it back as a recording, and replays it; `--snapshot out.png` renders the window after sending that train. `Recording.swift` holds the recording and scenario formats.
 
 ## Installing the screensaver
 

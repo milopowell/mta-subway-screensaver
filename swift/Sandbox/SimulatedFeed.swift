@@ -15,6 +15,8 @@ final class SimulatedFeed {
         var arrivals: [Double]  // unix times: when it reaches each stop (the first: when it was sent)
         var departures: [Double]  // … and leaves it (the last: when it leaves the data)
         let label: String  // "1: 59 St-Columbus Circle to 14 St"
+        /// How it was sent (for saving scenarios).
+        let from: String, to: String, pace: Double, sentAt: Double
     }
 
     private(set) var trains: [Train] = []
@@ -62,7 +64,8 @@ final class SimulatedFeed {
             }
             let name = { (s: String) in self.net.stations[s]?.name ?? s }
             let train = Train(id: nextID, route: route, platforms: platforms, arrivals: arrivals, departures: departures,
-                              label: "\(RouteSymbolsView.label(for: route)): \(name(from)) to \(name(to))")
+                              label: "\(RouteSymbolsView.label(for: route)): \(name(from)) to \(name(to))",
+                              from: from, to: to, pace: pace, sentAt: now)
             nextID += 1
             trains.append(train)
             return train

@@ -4,6 +4,8 @@ import AppKit
 struct Arrival {
     let route: String
     let minutes: Double  // from now
+    /// The train's key on the map ("feed|trip_id", as MotionPlanner uses), for ringing its dot.
+    let key: String
 }
 
 /// The next trains at one station, split by direction, with the MTA's labels for each direction.
@@ -30,7 +32,7 @@ struct StationBoard {
                 guard let first = trip.upcoming.first, first.time >= now - network.settings.staleAfterS,
                       let stop = trip.upcoming.first(where: { $0.stop == platform }), stop.time >= now - 30
                 else { continue }
-                out.append(Arrival(route: trip.routeID, minutes: (stop.time - now) / 60))
+                out.append(Arrival(route: trip.routeID, minutes: (stop.time - now) / 60, key: "\(trip.feed)|\(trip.tripID)"))
             }
             return Array(out.sorted { $0.minutes < $1.minutes }.prefix(perDirection))
         }
@@ -48,6 +50,7 @@ struct StationBoard {
 /// not that many trains are listed, so the height doesn't change from tick to tick.
 final class NextTrainsView: NSView {
     var boards: [StationBoard] = [] { didSet { needsDisplay = true } }
+    var theme: Theme = .dark { didSet { needsDisplay = true } }
     /// The time shown at the top right of the board (set with each update).
     var time = Date() { didSet { needsDisplay = true } }
     private static let clockFormat: DateFormatter = {
@@ -85,21 +88,21 @@ final class NextTrainsView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill()
+        theme.background.setFill()
         bounds.fill()
         let unit = NextTrainsView.unit(forWidth: bounds.width)
         let pad = unit
         var y = pad * 0.6
 
-        text("NEXT TRAINS", at: CGPoint(x: pad, y: y + unit * 0.35), size: unit * 0.75, color: .gray, weight: .semibold)
+        text("NEXT TRAINS", at: CGPoint(x: pad, y: y + unit * 0.35), size: unit * 0.75, color: theme.secondaryInk, weight: .semibold)
         // The clock, right-aligned on the same line; digits of equal width so it doesn't shift as it changes.
         let clock = NSAttributedString(string: Self.clockFormat.string(from: time), attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.3, weight: .semibold), .foregroundColor: NSColor.white,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.3, weight: .semibold), .foregroundColor: theme.ink,
         ])
         clock.draw(at: CGPoint(x: bounds.width - pad - clock.size().width, y: y - unit * 0.1))
         y += unit * 1.8
         if boards.isEmpty {
-            text("Choose stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: .gray,
+            text("Choose stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: theme.secondaryInk,
                  maxWidth: bounds.width - 2 * pad)
             return
         }
@@ -129,11 +132,11 @@ final class NextTrainsView: NSView {
             for (column, (label, arrivals)) in [(board.northLabel, board.north), (board.southLabel, board.south)].enumerated() {
                 let left = pad + CGFloat(column) * (columnWidth + pad)
                 var rowY = y
-                text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.75, color: .gray, weight: .semibold,
+                text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.75, color: theme.secondaryInk, weight: .semibold,
                      maxWidth: columnWidth)
                 rowY += unit * NextTrainsView.labelRow
                 if arrivals.isEmpty {
-                    text("None listed", at: CGPoint(x: left, y: rowY + unit * 0.4), size: unit * 0.9, color: .darkGray)
+                    text("None listed", at: CGPoint(x: left, y: rowY + unit * 0.4), size: unit * 0.9, color: theme.faintInk)
                 }
                 for arrival in arrivals.prefix(perDirection) {
                     let diameter = unit * 1.6
@@ -146,7 +149,7 @@ final class NextTrainsView: NSView {
                         let number = "\(Int(arrival.minutes.rounded()))"
                         let w = text(number, at: CGPoint(x: textX, y: rowY + unit * 0.05), size: unit * 1.45, weight: .semibold)
                         text("min", at: CGPoint(x: textX + w + unit * 0.25, y: rowY + unit * 0.55), size: unit * 0.85,
-                             color: NSColor(white: 0.75, alpha: 1))
+                             color: theme.unitInk)
                     }
                     rowY += unit * NextTrainsView.trainRow
                 }
@@ -159,12 +162,12 @@ final class NextTrainsView: NSView {
 
     /// Draws text with its top-left at `point`; returns its width. `maxWidth` truncates with "…".
     @discardableResult
-    private func text(_ string: String, at point: CGPoint, size: CGFloat, color: NSColor = .white,
+    private func text(_ string: String, at point: CGPoint, size: CGFloat, color: NSColor? = nil,
                       weight: NSFont.Weight = .regular, maxWidth: CGFloat? = nil) -> CGFloat {
         let style = NSMutableParagraphStyle()
         style.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color, .paragraphStyle: style,
+            .font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color ?? theme.ink, .paragraphStyle: style,
         ]
         let attributed = NSAttributedString(string: string, attributes: attributes)
         let width = min(attributed.size().width, maxWidth ?? .greatestFiniteMagnitude)

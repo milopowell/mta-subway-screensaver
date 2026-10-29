@@ -1,4 +1,5 @@
-"""Black-background styling + cropping for the interpreted MTA diagram."""
+"""Styling + cropping for the interpreted MTA diagram: black background (dark theme) or the paper map's own colors
+(light theme)."""
 import numpy as np
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
@@ -12,6 +13,11 @@ LEGEND = (1010.0, 1489.0)  # x >= and y >= this is the legend / info panel
 # shows only where there is water.
 WATER = (0.035, 0.075, 0.13)
 PARKS = (0.045, 0.11, 0.06)
+
+# Light theme: the paper map's own colors, with the white land softened to an off-white so a full screen of it isn't
+# glaring. Everything white on paper that sits on land (masks behind labels, casings between lines) uses the same
+# off-white; letters inside station circles and route symbols stay pure white.
+LAND_LIGHT = (0.95, 0.95, 0.93)
 
 
 def bbox(segs):
@@ -156,6 +162,40 @@ def style_path(p, bullets):
     return fc, ec
 
 
+def style_path_light(p, bullets):
+    """(facecolor, edgecolor) for the light theme, or None to skip: the paper map's colors (see LAND_LIGHT)."""
+    lo, hi = p["lo"], p["hi"]
+    if cropped(lo, hi):
+        return None
+    w, h = hi - lo
+    fc = ec = None
+    f = p["fill"]
+    if f is not None:
+        c = tuple(min(1, max(0, x)) for x in f[:3])
+        if len(f) > 3 or not (is_neutral(c) and lum(c) > 0.93):
+            fc = c  # water, parks, lines, symbols, beaches: as printed
+        else:
+            is_mask = p.get("mask") or (not p["curves"] and max(w, h) >= 40)  # see prepare()
+            fc = LAND_LIGHT if p.get("land") or w * h > 20000 or is_mask else (1, 1, 1)  # letters stay white
+    s = p["stroke"]
+    if s is not None:
+        c = tuple(min(1, max(0, x)) for x in s[:3])
+        ec = LAND_LIGHT if is_neutral(c) and lum(c) > 0.93 else c
+    if fc is None and ec is None:
+        return None
+    return fc, ec
+
+
+def style_text_light(t, bullets):
+    """Label color for the light theme: as printed (black when the PDF gives none)."""
+    if not clean_text(t["text"]).strip():
+        return None
+    if t["y"] >= TITLE_Y - 1 or (t["x"] >= LEGEND[0] and t["y"] >= LEGEND[1]) or (t["y"] > TITLE_Y - 20 and t["size"] > 15):
+        return None
+    c = t["color"]
+    return (0, 0, 0) if c is None else tuple(min(1, max(0, x)) for x in c[:3])
+
+
 def style_text(t, bullets):
     if not clean_text(t["text"]).strip():
         return None
@@ -175,11 +215,13 @@ def clean_text(s):
     return "".join(ch for ch in s if ord(ch) >= 32)  # icon-font codes (accessibility symbols etc.) can't be drawn as text
 
 
-def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0):
-    """Draw the black-background map onto a matplotlib axis in page coordinates."""
+def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0, theme="dark"):
+    """Draw the map onto a matplotlib axis in page coordinates: black background (theme "dark") or the paper
+    map's colors ("light")."""
+    path_style, text_style = (style_path_light, style_text_light) if theme == "light" else (style_path, style_text)
     n = 0
     for p in drawing["paths"]:
-        st = style_path(p, bullets)
+        st = path_style(p, bullets)
         if st is None:
             continue
         fc, ec = st
@@ -190,7 +232,7 @@ def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0):
                                zorder=zorder + n * 1e-6, capstyle="butt", joinstyle="miter"))
         n += 1
     for t in drawing["texts"]:
-        c = style_text(t, bullets)
+        c = text_style(t, bullets)
         if c is None:
             continue
         ax.text(t["x"], t["y"], clean_text(t["text"]), rotation=t["angle"], rotation_mode="anchor",

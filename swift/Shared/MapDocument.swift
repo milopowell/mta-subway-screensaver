@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// The black MTA map exported by the notebook (§8): a one-page vector PDF.
+/// An MTA map exported by the notebook (§8): a one-page vector PDF (map_black.pdf, or map_light.pdf for light mode).
 ///
 /// The PDF page *is* the map's coordinate system: x 0–1656 left→right, y 0–1978 bottom→top, one map unit per
 /// PDF point. Every position in network.json uses the same coordinates, so they can be drawn onto it directly.
@@ -23,8 +23,9 @@ final class MapDocument {
     ///   - mapRect: the region to show, in map units. It must have the same shape (aspect ratio) as `pixelSize`;
     ///     anything outside the map page is left black.
     ///   - pixelSize: the bitmap size in pixels (view size × screen scale, e.g. ×2 on Retina).
+    ///   - background: the color outside the map page (the theme's background).
     /// - Returns: the rendered image, or nil if the bitmap couldn't be created.
-    func renderImage(mapRect: CGRect, pixelSize: CGSize) -> CGImage? {
+    func renderImage(mapRect: CGRect, pixelSize: CGSize, background: CGColor = CGColor(gray: 0, alpha: 1)) -> CGImage? {
         let width = Int(pixelSize.width.rounded()), height = Int(pixelSize.height.rounded())
         guard width > 0, height > 0,
               let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -34,7 +35,7 @@ final class MapDocument {
                                       | CGBitmapInfo.byteOrder32Little.rawValue)
         else { return nil }
 
-        ctx.setFillColor(CGColor(gray: 0, alpha: 1))  // black everywhere first, including outside the page
+        ctx.setFillColor(background)  // the background everywhere first, including outside the page
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
         // Map units → pixels. Both coordinate systems have their origin at the bottom-left, so this is

@@ -49,6 +49,15 @@ final class SandboxView: NSView {
     private let note = NSTextField(wrappingLabelWithString: "")
     private let status = NSTextField(labelWithString: "")
     private var listedTrains: [Int] = []
+    private let themePopup = NSPopUpButton()
+    private let recordButton = NSButton()
+    private let replayButton = NSButton()
+
+    /// A live recording in progress (downloads every 30 s), and the replay of a saved one: while replaying, the
+    /// sandbox's clock runs `offset` seconds behind (or ahead of) the real one, so it is the recording's time.
+    private var recording: Recording?
+    private var recordTimer: Timer?
+    private var replay: (recording: Recording, offset: Double)?
 
     init?(size: NSSize) {
         guard let url = SubwayView.resources.url(forResource: "map_black", withExtension: "pdf"),
@@ -85,17 +94,32 @@ final class SandboxView: NSView {
         tick()
     }
 
+    /// The sandbox's clock: the real time, or the recording's time while one is replaying.
+    private var now: Double { Date().timeIntervalSince1970 + (replay?.offset ?? 0) }
+
     /// Once a second: a pretend download when one is due, then the planner moves the trains.
     private func tick(downloadNow: Bool = false) {
-        let now = Date().timeIntervalSince1970
+        let now = self.now
+        if let replay, now > replay.recording.end + 30 {
+            stopReplay()
+            show("The recording ended.")
+            return
+        }
         if downloadNow || now - lastDownload >= downloadInterval {
-            trips = feed.snapshot(now: now)
+            trips = feed.snapshot(now: now) + (replay?.recording.trips(at: now) ?? [])
             lastDownload = now
         }
         panel.apply(planner.update(trips: trips, now: now))
         let counts = planner.counts
         status.stringValue = "\(counts.moving) moving, \(counts.stopped) stopped; next update in "
             + "\(max(Int((lastDownload + downloadInterval - now).rounded()), 0)) s"
+        if let replay {
+            let time = DateFormatter.localizedString(from: Date(timeIntervalSince1970: now), dateStyle: .none, timeStyle: .medium)
+            status.stringValue += "\nReplaying: \(time), \(Int((replay.recording.end - now) / 60)) min left"
+        }
+        if let recording {
+            status.stringValue += "\nRecording: \(recording.snapshots.count) downloads (\(Int((recording.end - recording.start) / 60)) min)"
+        }
         refreshTrainList()
     }
 
@@ -112,7 +136,7 @@ final class SandboxView: NSView {
         panel.layout(frame: mapFrame, showing: region, scale: window?.backingScaleFactor ?? 2)
         // The map's coordinates changed: redraw every dot, glides continuing from where they are.
         panel.clearTrains()
-        panel.apply(planner.resync(now: Date().timeIntervalSince1970))
+        panel.apply(planner.resync(now: now))
     }
 
     /// A click on the map centers it there.
@@ -152,7 +176,7 @@ final class SandboxView: NSView {
               let from = fromPopup.selectedItem?.representedObject as? String,
               let to = toPopup.selectedItem?.representedObject as? String else { return }
         guard from != to else { return show("From and To are the same station.") }
-        guard let train = feed.send(route: route, from: from, to: to, pace: pace, now: Date().timeIntervalSince1970) else {
+        guard let train = feed.send(route: route, from: from, to: to, pace: pace, now: now) else {
             return show("No \(RouteSymbolsView.label(for: route)) service runs from that station to that one. "
                         + "Try swapping them, or a different route.")
         }
@@ -167,7 +191,7 @@ final class SandboxView: NSView {
     }
 
     @objc private func sendRandom() {
-        let now = Date().timeIntervalSince1970
+        let now = now
         let sent = (0..<10).compactMap { _ in feed.sendRandom(stops: Int.random(in: 4...10), pace: pace, now: now) }
         show("Sent \(sent.count) trains on random routes. Show the whole map to see them all.")
         tick(downloadNow: true)
@@ -181,7 +205,7 @@ final class SandboxView: NSView {
     /// Shifts the selected train's timetable: the next update reports the change, as a real download would.
     private func changeTrain(by seconds: Double, _ what: String) {
         guard let id = selectedTrain else { return }
-        feed.shift(id, by: seconds, now: Date().timeIntervalSince1970)
+        feed.shift(id, by: seconds, now: now)
         show("Train \(trainPopup.titleOfSelectedItem ?? "") \(what); the change arrives with the next update.")
     }
 
@@ -195,6 +219,120 @@ final class SandboxView: NSView {
         feed.removeAll()
         tick(downloadNow: true)
         show("Removed every train.")
+    }
+
+    // ---- Recording and replaying the live feed ----
+
+    @objc private func toggleRecording() {
+        if let done = recording {
+            recordTimer?.invalidate()
+            recordTimer = nil
+            recording = nil
+            recordButton.title = "Record live"
+            guard !done.snapshots.isEmpty else { return show("Nothing was recorded.") }
+            save(done, name: "subway recording \(Self.fileStamp(done.start)).json", what: "recording")
+            return
+        }
+        recording = Recording()
+        recordButton.title = "Stop and save…"
+        show("Recording the live feed every 30 s. The trains aren't shown here while recording; play the recording "
+             + "afterwards.")
+        let settings = network.settings
+        let download = { [weak self] in
+            Task {
+                let (feeds, at) = await FeedClient.fetchEach(settings: settings)
+                await MainActor.run { self?.recording?.add(feeds.values.flatMap { $0 }, at: at) }
+            }
+        }
+        download()
+        recordTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in download() }
+    }
+
+    @objc private func toggleReplay() {
+        if replay != nil { return stopReplay() }
+        guard let loaded: Recording = open(what: "recording"), !loaded.snapshots.isEmpty else { return }
+        feed.removeAll()  // trains sent by hand run on the real clock: start the replay without them
+        panel.apply(planner.reset())
+        replay = (loaded, loaded.start - Date().timeIntervalSince1970)
+        replayButton.title = "Stop replay"
+        show("Replaying from \(DateFormatter.localizedString(from: Date(timeIntervalSince1970: loaded.start), dateStyle: .short, timeStyle: .short)). "
+             + "Trains you send now join the replay.")
+        tick(downloadNow: true)
+    }
+
+    private func stopReplay() {
+        feed.removeAll()
+        panel.apply(planner.reset())
+        replay = nil
+        replayButton.title = "Play recording…"
+        tick(downloadNow: true)
+    }
+
+    // ---- Scenarios ----
+
+    @objc private func saveScenario() {
+        guard !feed.trains.isEmpty else { return show("Send some trains first.") }
+        let now = self.now
+        let scenario = Scenario(trains: feed.trains.map {
+            Scenario.SentTrain(route: $0.route, from: $0.from, to: $0.to, pace: $0.pace, secondsAgo: now - $0.sentAt)
+        })
+        save(scenario, name: "subway scenario.json", what: "scenario")
+    }
+
+    @objc private func loadScenario() {
+        guard let scenario: Scenario = open(what: "scenario") else { return }
+        let now = self.now
+        let sent = scenario.trains.compactMap {
+            feed.send(route: $0.route, from: $0.from, to: $0.to, pace: $0.pace, now: now - $0.secondsAgo)
+        }
+        show("Loaded \(sent.count) trains (\(scenario.trains.count - sent.count) not found on this schedule).")
+        tick(downloadNow: true)
+    }
+
+    // ---- Files ----
+
+    private static func fileStamp(_ time: Double) -> String {
+        let format = DateFormatter()
+        format.dateFormat = "yyyy-MM-dd HH.mm"
+        return format.string(from: Date(timeIntervalSince1970: time))
+    }
+
+    private func save<T: Encodable>(_ value: T, name: String, what: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try JSONEncoder().encode(value).write(to: url)
+            show("Saved the \(what) as \(url.lastPathComponent).")
+        } catch {
+            show("Couldn't save the \(what): \(error.localizedDescription)")
+        }
+    }
+
+    private func open<T: Decodable>(what: String) -> T? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        do {
+            return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
+        } catch {
+            show("That file isn't a sandbox \(what): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // ---- Appearance ----
+
+    @objc private func themeChanged() {
+        let theme: Theme = themePopup.indexOfSelectedItem == 1 ? .light : .dark
+        guard let url = SubwayView.resources.url(forResource: theme.mapResource, withExtension: "pdf"),
+              let map = MapDocument(url: url) else { return show("The light map isn't bundled: re-run the notebook's §8.") }
+        panel.document = map
+        panel.theme = theme
+        layer?.backgroundColor = theme.background.cgColor
+        laidOut = nil
+        needsLayout = true
     }
 
     @objc private func feedChanged() {
@@ -317,6 +455,17 @@ final class SandboxView: NSView {
         feedPopup.target = self
         feedPopup.action = #selector(feedChanged)
         status.textColor = .secondaryLabelColor
+        status.maximumNumberOfLines = 3
+        themePopup.addItems(withTitles: ["Dark map", "Light map"])
+        themePopup.target = self
+        themePopup.action = #selector(themeChanged)
+        for (button, title, action) in [(recordButton, "Record live", #selector(toggleRecording)),
+                                        (replayButton, "Play recording…", #selector(toggleReplay))] {
+            button.title = title
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+        }
 
         let views: [NSView] = [
             header("Send a train"),
@@ -328,9 +477,12 @@ final class SandboxView: NSView {
             NSStackView(views: [button("Delay 30 s", #selector(delayTrain)), button("Jump ahead 60 s", #selector(jumpTrain))]),
             NSStackView(views: [button("Remove", #selector(removeTrain)), button("Remove all", #selector(removeAll))]),
             gap(), header("View"),
-            zoomLabel, zoomSlider, help, button("Whole map", #selector(showWholeMap)),
+            zoomLabel, zoomSlider, help, NSStackView(views: [button("Whole map", #selector(showWholeMap)), themePopup]),
             gap(), header("Feed"),
-            feedPopup, status,
+            feedPopup,
+            NSStackView(views: [recordButton, replayButton]),
+            NSStackView(views: [button("Save scenario…", #selector(saveScenario)), button("Load scenario…", #selector(loadScenario))]),
+            status,
         ]
         for view in views { sidebar.addArrangedSubview(view) }
         sidebar.setHuggingPriority(.defaultHigh, for: .vertical)

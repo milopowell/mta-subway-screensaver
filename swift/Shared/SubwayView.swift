@@ -71,6 +71,22 @@ final class SubwayView: NSView {
     /// "Time-lapse 20× (testing) · 2:41 PM": which moment a forced time-lapse is showing.
     private let modeLayer = CATextLayer()
     private var pickerButton: NSButton?
+    /// Service alerts for the home stations' routes (a trial feature), downloaded every `alertsInterval` seconds.
+    private let alertsView = AlertsView()
+    private var alertsFetchedAt = -Double.infinity
+    private var alertsLoading = false
+    private let alertsInterval: Double = 120
+    /// The large clock card and the quiet-hours dimming (trial features).
+    private let clockLayer = CATextLayer()
+    private let dimLayer = CALayer()
+
+    /// The colors and map in use, chosen from the Appearance setting by `applyTheme()`.
+    private(set) var theme: Theme = .dark
+    /// The exported maps, by resource name (map_black, map_light), loaded when first needed.
+    private var documents: [String: MapDocument] = [:]
+    /// Shows the whole map instead of the close-up: the screensaver sets this on other displays when the
+    /// "Other displays" setting asks for it.
+    var showsWholeMap = false { didSet { needsLayout = true } }
 
     // ---- Live state ----
     /// Each feed's last good download (see FeedCache): a feed that fails briefly keeps its trains on screen.
@@ -131,6 +147,19 @@ final class SubwayView: NSView {
             }
         }
         addSubview(nextTrains)
+        alertsView.routeColors = nextTrains.routeColors
+        alertsView.isHidden = true
+        addSubview(alertsView)
+
+        clockLayer.alignmentMode = .center
+        clockLayer.isHidden = true
+        clockLayer.zPosition = 9
+        layer?.addSublayer(clockLayer)
+        dimLayer.backgroundColor = NSColor.black.cgColor
+        dimLayer.opacity = 0.55
+        dimLayer.isHidden = true
+        dimLayer.zPosition = 20  // over everything
+        layer?.addSublayer(dimLayer)
 
         statusLayer.fontSize = 11
         statusLayer.foregroundColor = NSColor.white.cgColor
@@ -156,6 +185,151 @@ final class SubwayView: NSView {
         }
 
         if allowsInteraction { addPickerButton() }
+        if let document { documents[Theme.dark.mapResource] = document }
+        applyTheme(force: true)
+    }
+
+    // ---- Appearance and trial features ----
+
+    /// Picks the theme from the Appearance setting (and the Mac's appearance, or the time of day) and, when it
+    /// changes, recolors everything and redraws the map in the matching colors.
+    func applyTheme(force: Bool = false) {
+        let wanted: Theme
+        switch settings.appearance {
+        case .dark: wanted = .dark
+        case .light: wanted = .light
+        case .system: wanted = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
+        case .timeOfDay:
+            let hour = Calendar.current.component(.hour, from: Date())
+            wanted = (SubwaySettings.dayStartHour..<SubwaySettings.dayEndHour).contains(hour) ? .light : .dark
+        }
+        guard force || wanted != theme else { return }
+        theme = wanted
+        if documents[wanted.mapResource] == nil {
+            documents[wanted.mapResource] = SubwayView.resources.url(forResource: wanted.mapResource, withExtension: "pdf")
+                .flatMap(MapDocument.init)
+        }
+        let map = documents[wanted.mapResource]  // nil: an old export without the light map; keep the black one
+        for panel in [fullPanel, zoomPanel].compactMap({ $0 }) {
+            if let map { panel.document = map }
+            panel.theme = wanted
+        }
+        nextTrains.theme = wanted
+        alertsView.theme = wanted
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.backgroundColor = wanted.background.cgColor
+        statusLayer.foregroundColor = wanted.ink.cgColor
+        statusLayer.backgroundColor = wanted.noteBackground.cgColor
+        for note in [offlineLayer, modeLayer] {
+            note.foregroundColor = wanted.noteInk.cgColor
+            note.backgroundColor = wanted.noteBackground.cgColor
+        }
+        clockLayer.backgroundColor = wanted.background.cgColor
+        clockLayer.borderColor = wanted.cardBorder.cgColor
+        clockShown = ""  // redraw the clock in the new color
+        CATransaction.commit()
+        pickerButton?.contentTintColor = wanted.ink
+        pickerButton?.layer?.backgroundColor = (wanted.isLight ? NSColor(white: 1, alpha: 0.9) : NSColor(white: 0.18, alpha: 0.9)).cgColor
+        needsLayout = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if settings.appearance == .system { applyTheme() }
+    }
+
+    /// Call after the home stations change outside the picker (e.g. the settings were switched to a shared file).
+    func reloadStations() {
+        needsLayout = true
+        updateBoards(now: Date().timeIntervalSince1970)
+    }
+
+    /// Call after changing the appearance or a trial feature in the settings.
+    func settingsChanged() {
+        applyTheme()
+        alertsFetchedAt = settings.isOn(.alerts) ? alertsFetchedAt : -Double.infinity
+        updateFeatures(now: Date().timeIntervalSince1970)
+        needsLayout = true
+    }
+
+    /// Each tick: the time-of-day appearance, quiet hours, the large clock, the next-train ring and the alerts.
+    private func updateFeatures(now: Double) {
+        if settings.appearance == .timeOfDay { applyTheme() }
+        let hour = Calendar.current.component(.hour, from: Date(timeIntervalSince1970: now))
+        let dim = settings.isOn(.quietHours) && hour < SubwaySettings.quietEndHour
+        if dimLayer.isHidden == dim {
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(3)  // ease into and out of quiet hours
+            dimLayer.isHidden = !dim
+            CATransaction.commit()
+        }
+        if !clockLayer.isHidden { updateClock(now: now) }
+        let ring: Set<String> = settings.isOn(.nextTrainRing) && !nextTrains.isHidden
+            ? Set(nextTrains.boards.flatMap { [$0.north.first?.key, $0.south.first?.key].compactMap { $0 } }) : []
+        for panel in [fullPanel, zoomPanel].compactMap({ $0 }) where panel.highlighted != ring { panel.highlighted = ring }
+        if settings.isOn(.alerts), !alertsLoading, now - alertsFetchedAt >= alertsInterval {
+            alertsLoading = true
+            Task { [weak self] in
+                let fetched = await ServiceAlerts.fetch(now: now)
+                await MainActor.run {
+                    guard let self else { return }
+                    self.alertsLoading = false
+                    self.alertsFetchedAt = now
+                    if let fetched { self.showAlerts(fetched) }
+                }
+            }
+        }
+    }
+
+    /// Keeps the alerts that concern the home stations' routes and resizes the card.
+    func showAlerts(_ all: [ServiceAlert]) {
+        guard let network else { return }
+        let routes = Set(settings.homeStations.flatMap { network.stations[$0]?.routes ?? [] })
+        alertsView.alerts = all.filter { !Set($0.routes).isDisjoint(with: routes) }
+        needsLayout = true
+    }
+
+    private var clockShown = ""
+    private static let bigClockFormat: DateFormatter = {
+        let format = DateFormatter()
+        format.timeStyle = .short
+        format.dateStyle = .none
+        return format
+    }()
+
+    private func updateClock(now: Double) {
+        let text = SubwayView.bigClockFormat.string(from: Date(timeIntervalSince1970: now))
+        guard text != clockShown else { return }
+        clockShown = text
+        let size = clockLayer.bounds.height * 0.62
+        clockLayer.string = NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .light), .foregroundColor: theme.ink,
+        ])
+    }
+
+    /// Places the trial features' cards: the alerts card (under the notes, top right) and the large clock (top left).
+    private func layoutExtras(closeUp: Bool, cardWidth: CGFloat, top: CGFloat) {
+        let w = bounds.width, h = bounds.height, margin: CGFloat = 12
+        let alertsHeight = settings.isOn(.alerts) ? alertsView.height(forWidth: cardWidth) : 0
+        alertsView.isHidden = alertsHeight == 0
+        alertsView.frame = CGRect(x: w - cardWidth - margin, y: top - alertsHeight, width: cardWidth, height: alertsHeight)
+        alertsView.wantsLayer = true
+        styleAsCard(alertsView.layer, true)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        clockLayer.isHidden = !settings.isOn(.largeClock)
+        let clockHeight = min(max(h * 0.12, 60), 140)
+        let clockFrame = CGRect(x: margin, y: h - clockHeight - margin, width: clockHeight * 3, height: clockHeight)
+        if clockLayer.frame != clockFrame { clockShown = "" }  // a new size: redraw the text
+        clockLayer.frame = clockFrame
+        clockLayer.contentsScale = backingScale
+        clockLayer.cornerRadius = 8
+        clockLayer.borderWidth = 1
+        dimLayer.frame = bounds
+        CATransaction.commit()
+        updateClock(now: Date().timeIntervalSince1970)
     }
 
     required init?(coder: NSCoder) {
@@ -274,6 +448,7 @@ final class SubwayView: NSView {
         fullPanel?.apply(commands, animated: animated)
         zoomPanel?.apply(commands, animated: animated)
         if !nextTrains.isHidden { updateBoards(now: now) }
+        updateFeatures(now: now)
         if showsStatus { updateStatus() }
         if modeChanged, tickTimer != nil { startTicking(updateNow: false) }  // the tick rate follows the mode
     }
@@ -389,7 +564,7 @@ final class SubwayView: NSView {
     private func styleAsCard(_ layer: CALayer?, _ on: Bool) {
         layer?.cornerRadius = on ? 8 : 0
         layer?.borderWidth = on ? 1 : 0
-        layer?.borderColor = NSColor(white: 1, alpha: 0.25).cgColor
+        layer?.borderColor = theme.cardBorder.cgColor
         layer?.masksToBounds = true
     }
 
@@ -399,8 +574,8 @@ final class SubwayView: NSView {
         let w = bounds.width, h = bounds.height
         let mapAspect = document.bounds.width / document.bounds.height  // ≈ 0.84 (taller than wide)
         let scale = backingScale
-        let closeUp = settings.layout == .closeUp && homeRegion != nil
-        let split = !closeUp && w / h >= 1.2 && homeRegion != nil
+        let closeUp = !showsWholeMap && settings.layout == .closeUp && homeRegion != nil
+        let split = !showsWholeMap && !closeUp && w / h >= 1.2 && homeRegion != nil
         nextTrains.wantsLayer = true
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -417,6 +592,7 @@ final class SubwayView: NSView {
             // One section of the map fills the window at the chosen magnification (automatic: framed on the home
             // stations, between 2× and 4×), centered on them. The overview (top right) outlines the section shown.
             zoomPanel?.root.isHidden = false
+            zoomPanel?.drift = settings.isOn(.drift) ? (min(w, h) * 0.04).rounded() : 0  // trial feature: slow drift
             zoomPanel?.layout(frame: bounds, showing: magnifiedRegion(size: bounds.size, document: document, autoRange: 2...4),
                               scale: scale)
 
@@ -444,6 +620,7 @@ final class SubwayView: NSView {
             fullPanel.dotRange = 6...10
             fullPanel.layout(frame: CGRect(x: 0, y: 0, width: fullWidth, height: h), showing: document.bounds, scale: scale)
             zoomPanel?.root.isHidden = false
+            zoomPanel?.drift = 0
             let zoomFrame = CGRect(x: rightX, y: board + gap, width: rightWidth, height: h - board - gap)
             // At the chosen magnification, or (automatic) framed on the home stations, up to 10×.
             zoomPanel?.layout(frame: zoomFrame, showing: magnifiedRegion(size: zoomFrame.size, document: document,
@@ -470,6 +647,7 @@ final class SubwayView: NSView {
         }
         CATransaction.commit()
         pickerButton?.frame = CGRect(x: w - 40, y: 8, width: 32, height: 32)
+        layoutExtras(closeUp: closeUp, cardWidth: min(max(w * 0.22, 250), 330), top: noteTop - 50)
         // The panels' coordinates changed: recreate every dot and restart glides in the new coordinates.
         if let planner, tickTimer != nil {
             let now = Date().timeIntervalSince1970
@@ -570,9 +748,11 @@ final class SubwayView: NSView {
         ctx.scaleBy(x: scale, y: scale)
         layer.render(in: ctx)
         // AppKit-drawn views aren't captured by layer.render, so draw the next-train panel explicitly.
-        if !nextTrains.isHidden, let rep = nextTrains.bitmapImageRepForCachingDisplay(in: nextTrains.bounds) {
-            nextTrains.cacheDisplay(in: nextTrains.bounds, to: rep)
-            if let image = rep.cgImage { ctx.draw(image, in: nextTrains.frame) }
+        for view in [nextTrains, alertsView] where !view.isHidden {
+            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                if let image = rep.cgImage { ctx.draw(image, in: view.frame) }
+            }
         }
         if !offlineLayer.isHidden {  // it sits above the panel on screen, so draw it again on top here
             ctx.saveGState()
