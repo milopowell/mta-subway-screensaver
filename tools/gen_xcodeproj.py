@@ -39,6 +39,7 @@ targets = {
         "settings": {
             **common_target,
             "PRODUCT_BUNDLE_IDENTIFIER": "com.milopowell.subway.preview",
+            "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",  # Assets.xcassets in the app's folder (tools/make_icons.swift)
             "INFOPLIST_KEY_NSPrincipalClass": "NSApplication",
             "INFOPLIST_KEY_CFBundleDisplayName": '"Subway Preview"',
             "INFOPLIST_KEY_LSApplicationCategoryType": '"public.app-category.utilities"',
@@ -54,6 +55,7 @@ targets = {
         "settings": {
             **common_target,
             "PRODUCT_BUNDLE_IDENTIFIER": "com.milopowell.subway.sandbox",
+            "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",  # Assets.xcassets in the app's folder (tools/make_icons.swift)
             "INFOPLIST_KEY_NSPrincipalClass": "NSApplication",
             "INFOPLIST_KEY_CFBundleDisplayName": '"Subway Sandbox"',
             "INFOPLIST_KEY_LSApplicationCategoryType": '"public.app-category.utilities"',

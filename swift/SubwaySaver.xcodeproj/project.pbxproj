@@ -222,6 +222,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_CFBundleDisplayName = "Subway Preview";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -242,6 +243,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.preview;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_CFBundleDisplayName = "Subway Preview";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -262,6 +264,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.sandbox;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_CFBundleDisplayName = "Subway Sandbox";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -282,6 +285,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.milopowell.subway.sandbox;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_CFBundleDisplayName = "Subway Sandbox";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";

@@ -163,6 +163,7 @@ mta-screensaver/
 │   └── build/                 build output (safe to delete)
 ├── tools/
 │   ├── gen_xcodeproj.py       regenerates the Xcode project file
+│   ├── make_icons.swift       draws the app icons (preview app and sandbox)
 │   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
 │   └── gtfs-realtime.desc     feed schema, for regenerating the Swift feed decoder
 └── archive/                   earlier versions of the notebook
