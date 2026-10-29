@@ -300,6 +300,7 @@ final class SubwayView: NSView {
 
     private func updateBoards(now: Double) {
         guard let network else { return }
+        nextTrains.time = Date(timeIntervalSince1970: now)
         nextTrains.boards = settings.homeStations.compactMap {
             StationBoard.make(station: $0, trips: liveTrips, network: network, now: now,
                               perDirection: nextTrains.perDirection)

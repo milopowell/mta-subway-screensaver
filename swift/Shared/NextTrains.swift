@@ -51,6 +51,14 @@ struct StationBoard {
 /// change from tick to tick.
 final class NextTrainsView: NSView {
     var boards: [StationBoard] = [] { didSet { needsDisplay = true } }
+    /// The time shown at the top right of the board (set with each update).
+    var time = Date() { didSet { needsDisplay = true } }
+    private static let clockFormat: DateFormatter = {
+        let format = DateFormatter()
+        format.timeStyle = .short  // follows the Mac's 12- or 24-hour setting
+        format.dateStyle = .none
+        return format
+    }()
     /// Trains listed each way at each station (set by SubwayView's layout).
     var perDirection = 2 { didSet { needsDisplay = true } }
     /// route → (background colour, letter colour), from network.json.
@@ -87,6 +95,11 @@ final class NextTrainsView: NSView {
         var y = pad * 0.6
 
         text("NEXT TRAINS", at: CGPoint(x: pad, y: y), size: unit * 0.75, color: .gray, weight: .semibold)
+        // The clock, right-aligned on the same line; digits of equal width so it doesn't shift as it changes.
+        let clock = NSAttributedString(string: Self.clockFormat.string(from: time), attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.05, weight: .semibold), .foregroundColor: NSColor.white,
+        ])
+        clock.draw(at: CGPoint(x: bounds.width - pad - clock.size().width, y: y - unit * 0.2))
         y += unit * 1.4
         if boards.isEmpty {
             text("Choose home stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: .gray)

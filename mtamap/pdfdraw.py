@@ -230,6 +230,7 @@ class Interpreter:
             elif op == "BT":
                 tm = tlm = [1, 0, 0, 1, 0, 0]
                 label = None
+                jumped = False
             elif op == "ET":
                 tm = None
                 label = None
@@ -252,8 +253,10 @@ class Interpreter:
                     gs["TL"] = -ty
                 tlm = mat_mul([1, 0, 0, 1, tx, ty], tlm)
                 tm = tlm
-                if label is not None and (abs(ty) > 1e-6 or tx > 2.0 or tx < -0.1):
-                    label = None  # a jump, not just the next letter: start a new label
+                if label is not None and (abs(ty) > 1e-6 or tx < -0.1):
+                    label = None  # a new line or a step back: start a new label
+                elif label is not None and tx > 2.0:
+                    jumped = True  # further along the same line: a new label, or the rest of a kerned word (Tj decides)
             elif op == "T*":
                 tlm = mat_mul([1, 0, 0, 1, 0, -gs["TL"]], tlm)
                 tm = tlm
@@ -271,6 +274,9 @@ class Interpreter:
                     elif isinstance(part, float) and part < -250:
                         s += " "
                 trm = mat_mul([gs["Tfs"], 0, 0, gs["Tfs"], 0, 0], mat_mul(tm, gs["ctm"]))
+                if label is not None and jumped and not continues(label, trm):
+                    label = None
+                jumped = False
                 if label is None:
                     x, y = trm[4], trm[5]
                     label = {"x": x, "y": y, "angle": math.degrees(math.atan2(trm[1], trm[0])),
@@ -279,6 +285,27 @@ class Interpreter:
                     self.texts.append(label)
                 label["text"] += s
             # everything else (gs, d, j, J, M, BDC, EMC, ri, i, sh, ...) is ignored
+
+
+# Approximate Helvetica advance widths (fraction of the font size), enough to tell where a label's text ends.
+_NARROW, _WIDE = set("fijlrtI!.,:;'|()[]- "), set("mwMW@%")
+
+
+def text_width(text):
+    """Estimated width of `text` in Helvetica, in multiples of the font size."""
+    return sum(0.28 if c in _NARROW else 0.85 if c in _WIDE else 0.67 if c.isupper() else 0.55 for c in text)
+
+
+def continues(label, trm):
+    """True if text placed at `trm` carries on `label`'s word on the same line: it starts within about one letter
+    of where the label's text ends. The PDF sets some words in pieces to kern them ("Manha" + "ttan", "Astor P" +
+    "l"); drawing the pieces separately with a substitute font leaves uneven gaps, so they are joined."""
+    size = label["size"]
+    ang = math.radians(label["angle"])
+    dx, dy = trm[4] - label["x"], trm[5] - label["y"]
+    along = dx * math.cos(ang) + dy * math.sin(ang)
+    across = -dx * math.sin(ang) + dy * math.cos(ang)
+    return abs(across) < 0.05 * size and abs(along - text_width(label["text"]) * size) < 1.0 * size
 
 
 def interpret(path):
