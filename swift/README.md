@@ -36,9 +36,9 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
 | `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker |
-| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance |
+| `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance, train board style and tint |
 | `Theme.swift` | Dark and light: which map to show and the colors of the dots, board, cards and notes |
-| `AppearanceOptions.swift` | The appearance choice in the screensaver's Options sheet |
+| `AppearanceOptions.swift` | The appearance choices in the screensaver's Options sheet: dark or light, the train board's glass and its tint |
 
 ## Building and running
 
@@ -59,7 +59,7 @@ Preview app options (run the executable inside the app directly):
 - `--fullscreen`: start in full screen (Control-Command-F toggles it, Command-Q quits)
 - `--snapshot out.png [--width 1512 --height 982]`: render the view to a PNG and quit, without a window
 - `--home ID,ID`, `--layout split|closeUp` and `--magnification M`: home stations, layout and magnification for a snapshot only
-- `--appearance dark|light|system|timeOfDay`: appearance for a snapshot only
+- `--appearance dark|light|system|timeOfDay` and `--board glass|clearGlass|solid`: appearance and train board style for a snapshot only (the glass itself isn't captured off screen; the board's own drawing is)
 - `--dump-placements out.json`: write every trip's placement (feed, trip_id, x, y, how) and quit
 - train data for those two: `--live` (download now), or `--feeds-dir DIR --now UNIXTIME` (saved feeds `DIR/<feed>.pb`)
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move

@@ -49,6 +49,12 @@ struct StationBoard {
 final class NextTrainsView: NSView {
     var boards: [StationBoard] = [] { didSet { needsDisplay = true } }
     var theme: Theme = .dark { didSet { needsDisplay = true } }
+    /// How opaque the board's own background is: 1 normally, less when it sits on glass (SubwayView.placeBoard).
+    var backgroundAlpha: CGFloat = 1 { didSet { needsDisplay = true } }
+    /// Draws a rounded patch of the theme's background behind each piece of information (the clock, each station's
+    /// name and route symbols, the direction labels, each train's symbol and minutes), so they stay readable on clear
+    /// glass while the rest of the board stays see-through.
+    var textBackdrops = false { didSet { needsDisplay = true } }
     /// The time shown at the top right of the board (set with each update).
     var time = Date() { didSet { needsDisplay = true } }
     private static let clockFormat: DateFormatter = {
@@ -86,8 +92,10 @@ final class NextTrainsView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        theme.background.setFill()
-        bounds.fill()
+        if backgroundAlpha > 0 {
+            theme.background.withAlphaComponent(backgroundAlpha).setFill()
+            bounds.fill(using: .copy)
+        }
         let unit = NextTrainsView.unit(forWidth: bounds.width)
         let pad = unit
         var y = pad * 0.6
@@ -97,7 +105,9 @@ final class NextTrainsView: NSView {
         let clock = NSAttributedString(string: Self.clockFormat.string(from: time), attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: unit * 1.3, weight: .semibold), .foregroundColor: theme.ink,
         ])
-        clock.draw(at: CGPoint(x: bounds.width - pad - clock.size().width, y: y - unit * 0.1))
+        let clockX = bounds.width - pad - clock.size().width
+        backdrop(CGRect(x: clockX, y: y - unit * 0.1, width: clock.size().width, height: unit * 1.55), unit: unit)
+        clock.draw(at: CGPoint(x: clockX, y: y - unit * 0.1))
         y += unit * 1.8
         if boards.isEmpty {
             text("Choose stations with the tram button.", at: CGPoint(x: pad, y: y), size: unit * 0.9, color: theme.secondaryInk,
@@ -120,6 +130,9 @@ final class NextTrainsView: NSView {
                 nameSize *= 0.96
             }
             nameSize = max(nameSize, full * 0.5)
+            let nameWidth = min(measure(board.name, size: nameSize, weight: .bold), room)
+            backdrop(CGRect(x: pad, y: y + unit * 0.2, width: nameWidth + unit * 0.5 + CGFloat(symbols.count) * unit * 1.5 - unit * 0.2,
+                            height: unit * 1.4), unit: unit)
             var x = pad + text(board.name, at: CGPoint(x: pad, y: y + (full - nameSize) * 0.6), size: nameSize, weight: .bold,
                                maxWidth: room) + unit * 0.5
             for route in symbols {
@@ -130,6 +143,8 @@ final class NextTrainsView: NSView {
             for (column, (label, arrivals)) in [(board.northLabel, board.north), (board.southLabel, board.south)].enumerated() {
                 let left = pad + CGFloat(column) * (columnWidth + pad)
                 var rowY = y
+                let labelWidth = min(measure(label.uppercased(), size: unit * 0.75, weight: .semibold), columnWidth)
+                backdrop(CGRect(x: left, y: rowY, width: labelWidth, height: unit * 0.9), unit: unit)
                 text(label.uppercased(), at: CGPoint(x: left, y: rowY), size: unit * 0.75, color: theme.secondaryInk, weight: .semibold,
                      maxWidth: columnWidth)
                 rowY += unit * NextTrainsView.labelRow
@@ -138,13 +153,17 @@ final class NextTrainsView: NSView {
                 }
                 for arrival in arrivals.prefix(perDirection) {
                     let diameter = unit * 1.6
+                    let number = "\(Int(arrival.minutes.rounded()))"
+                    let words = arrival.minutes < 0.5 ? measure("now", size: unit * 1.45, weight: .semibold)
+                        : measure(number, size: unit * 1.45, weight: .semibold) + unit * 0.25
+                            + measure("min", size: unit * 0.85, weight: .regular)
+                    backdrop(CGRect(x: left, y: rowY + unit * 0.15, width: diameter + unit * 0.5 + words, height: diameter), unit: unit)
                     bullet(arrival.route, center: CGPoint(x: left + diameter / 2, y: rowY + unit * 0.95), diameter: diameter)
                     // The number large, "min" smaller beside it; "now" for a train arriving now.
                     let textX = left + diameter + unit * 0.5
                     if arrival.minutes < 0.5 {
                         text("now", at: CGPoint(x: textX, y: rowY + unit * 0.05), size: unit * 1.45, weight: .semibold)
                     } else {
-                        let number = "\(Int(arrival.minutes.rounded()))"
                         let w = text(number, at: CGPoint(x: textX, y: rowY + unit * 0.05), size: unit * 1.45, weight: .semibold)
                         text("min", at: CGPoint(x: textX + w + unit * 0.25, y: rowY + unit * 0.55), size: unit * 0.85,
                              color: theme.unitInk)
@@ -172,6 +191,14 @@ final class NextTrainsView: NSView {
         attributed.draw(with: CGRect(x: point.x, y: point.y, width: width, height: size * 1.4),
                         options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
         return width
+    }
+
+    /// A rounded patch of the theme's background around `content` (when `textBackdrops` is on).
+    private func backdrop(_ content: CGRect, unit: CGFloat) {
+        guard textBackdrops else { return }
+        let rect = content.insetBy(dx: -unit * 0.35, dy: -unit * 0.2)
+        theme.background.withAlphaComponent(theme.isLight ? 0.75 : 0.65).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: min(unit * 0.55, rect.height / 2), yRadius: min(unit * 0.55, rect.height / 2)).fill()
     }
 
     private func measure(_ string: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {

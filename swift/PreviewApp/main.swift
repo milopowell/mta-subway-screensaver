@@ -10,6 +10,8 @@ import AppKit
 //       [--layout split|closeUp]         layout for this snapshot only
 //       [--magnification M]              magnification (2, 3, 4, 6, 8; omit = Fit stations) for this snapshot only
 //       [--appearance dark|light|system|timeOfDay]  appearance for this snapshot only
+//       [--board glass|clearGlass|solid]  train board style for this snapshot only (glass itself isn't captured
+//                                        off screen: the board's own drawing, e.g. its text backdrops, is)
 //   --dump-placements <file.json>        write every trip's placement (feed, trip_id, x, y, how) and quit
 //   Train data for --snapshot / --dump-placements:
 //       --live                           download the feeds now
@@ -534,6 +536,7 @@ if wantsSnapshot != nil || wantsDump != nil {
         layout: value(after: "--layout").flatMap(SubwaySettings.Layout.init) ?? .split)
     settings.magnification = value(after: "--magnification").flatMap(Double.init)  // --magnification 3 (omit = Fit stations)
     if let look = value(after: "--appearance").flatMap(SubwaySettings.Appearance.init) { settings.appearance = look }
+    if let board = value(after: "--board").flatMap(SubwaySettings.BoardStyle.init) { settings.boardStyle = board }
     let view = SubwayView(frame: CGRect(origin: .zero, size: size), settings: settings)
     guard let hooks = view.testHooks else { fail("network.json isn't bundled: run the notebook's §8 export and rebuild") }
     if let feeds = value(after: "--simulate-outage") {

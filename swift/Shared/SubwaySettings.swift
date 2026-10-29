@@ -34,6 +34,21 @@ final class SubwaySettings {
     }
     static let dayStartHour = 7, dayEndHour = 19
 
+    /// How the next-train board is drawn in the close-up, where it floats over the map.
+    enum BoardStyle: String, CaseIterable {
+        case glass  // Liquid Glass (macOS 26; a frosted blur before): the map shows through, blurred
+        case clearGlass  // more see-through glass, with less blur
+        case solid  // an opaque card in the theme's background color
+
+        var title: String {
+            switch self {
+            case .glass: return "Glass"
+            case .clearGlass: return "Clear glass"
+            case .solid: return "Solid"
+            }
+        }
+    }
+
     private let defaults: UserDefaults?
     /// Used instead of `defaults` by settings kept in memory only.
     private var inMemory: [String: Any] = [:]
@@ -82,6 +97,23 @@ final class SubwaySettings {
     var appearance: Appearance {
         get { (value("appearance") as? String).flatMap(Appearance.init) ?? .dark }
         set { set(newValue.rawValue, "appearance") }
+    }
+
+    var boardStyle: BoardStyle {
+        get { (value("boardStyle") as? String).flatMap(BoardStyle.init) ?? .glass }
+        set { set(newValue.rawValue, "boardStyle") }
+    }
+
+    /// On clear glass: a backdrop behind each piece of information only (NextTrainsView.textBackdrops).
+    var boardBackdrops: Bool {
+        get { value("boardBackdrops") as? Bool ?? true }
+        set { set(newValue, "boardBackdrops") }
+    }
+
+    /// How strongly the glass is tinted with the theme's background color: 0 = untinted, 1 = almost solid.
+    var boardTint: Double {
+        get { value("boardTint") as? Double ?? 0.3 }
+        set { set(min(max(newValue, 0), 1), "boardTint") }
     }
 
     /// How much the magnified map (split view) or the close-up is enlarged, as a multiple of the whole map fitted to

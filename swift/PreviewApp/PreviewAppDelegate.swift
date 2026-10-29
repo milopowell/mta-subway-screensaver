@@ -56,7 +56,31 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func chooseAppearance(_ item: NSMenuItem) {
         guard let view = subwayView else { return }
         view.settings.appearance = SubwaySettings.Appearance.allCases[item.tag]
-        for other in item.menu?.items ?? [] { other.state = other === item ? .on : .off }
+        for other in item.menu?.items ?? [] where other.action == item.action { other.state = other === item ? .on : .off }
+        view.settingsChanged()
+    }
+
+    /// Glass tint choices in the menu, in percent (the screensaver's Options sheet has a slider).
+    private static let tints = [0, 15, 30, 50, 70]
+
+    @objc private func chooseBoardStyle(_ item: NSMenuItem) {
+        guard let view = subwayView else { return }
+        view.settings.boardStyle = SubwaySettings.BoardStyle.allCases[item.tag]
+        for other in item.menu?.items ?? [] where other.action == item.action { other.state = other === item ? .on : .off }
+        view.settingsChanged()
+    }
+
+    @objc private func toggleBackdrops(_ item: NSMenuItem) {
+        guard let view = subwayView else { return }
+        view.settings.boardBackdrops.toggle()
+        item.state = view.settings.boardBackdrops ? .on : .off
+        view.settingsChanged()
+    }
+
+    @objc private func chooseTint(_ item: NSMenuItem) {
+        guard let view = subwayView else { return }
+        view.settings.boardTint = Double(item.tag) / 100
+        for other in item.menu?.items ?? [] where other.action == item.action { other.state = other === item ? .on : .off }
         view.settingsChanged()
     }
 
@@ -101,6 +125,28 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
             item.state = subwayView?.settings.appearance == choice ? .on : .off
         }
+        // The next-train board in the close-up: glass or solid, and how strongly the glass is tinted.
+        lookMenu.addItem(.separator())
+        let boardItem = lookMenu.addItem(withTitle: "Train Board", action: nil, keyEquivalent: "")
+        let boardMenu = NSMenu(title: "Train Board")
+        for (i, style) in SubwaySettings.BoardStyle.allCases.enumerated() {
+            let item = boardMenu.addItem(withTitle: style.title, action: #selector(chooseBoardStyle(_:)), keyEquivalent: "")
+            item.tag = i
+            item.target = self
+            item.state = subwayView?.settings.boardStyle == style ? .on : .off
+        }
+        let backdrops = boardMenu.addItem(withTitle: "Backdrops Behind Text (Clear Glass)", action: #selector(toggleBackdrops(_:)),
+                                          keyEquivalent: "")
+        backdrops.target = self
+        backdrops.state = subwayView?.settings.boardBackdrops == true ? .on : .off
+        boardMenu.addItem(.separator())
+        for percent in Self.tints {
+            let item = boardMenu.addItem(withTitle: "Glass Tint \(percent)%", action: #selector(chooseTint(_:)), keyEquivalent: "")
+            item.tag = percent
+            item.target = self
+            item.state = Int(((subwayView?.settings.boardTint ?? 0) * 100).rounded()) == percent ? .on : .off
+        }
+        boardItem.submenu = boardMenu
         lookItem.submenu = lookMenu
 
         // Testing tools.

@@ -67,6 +67,10 @@ final class SubwayView: NSView {
     private var fullPanel: MapPanel?
     private var zoomPanel: MapPanel?
     private let nextTrains = NextTrainsView()
+    /// The glass the board sits on in the close-up (Board: Glass or Clear glass), holding the board; nil when solid.
+    private var boardGlass: NSView?
+    /// Where layout() last put the board, so a change of board style or tint can re-place it without a full layout.
+    private var boardPlacement: (frame: CGRect, closeUp: Bool)?
     private let statusLayer = CATextLayer()
     /// "Live data unavailable since …": shown only when every feed fails (also in the screensaver).
     private let offlineLayer = CATextLayer()
@@ -216,6 +220,69 @@ final class SubwayView: NSView {
     /// Call after changing the appearance in the settings.
     func settingsChanged() {
         applyTheme()
+        if let boardPlacement { placeBoard(boardPlacement.frame, closeUp: boardPlacement.closeUp) }
+    }
+
+    // ---- The board's glass ----
+
+    /// Puts the next-train board at `frame`, on glass or on its own solid background as the Board setting says. Glass
+    /// is for the close-up only, where the board floats over the map; in the split layout it sits beside the map,
+    /// with nothing behind it to see through.
+    private func placeBoard(_ frame: CGRect, closeUp: Bool) {
+        boardPlacement = (frame, closeUp)
+        let style = closeUp ? settings.boardStyle : .solid
+        guard style != .solid else {
+            if let glass = boardGlass {
+                addSubview(nextTrains)  // takes the board out of the glass
+                glass.removeFromSuperview()
+                boardGlass = nil
+            }
+            nextTrains.backgroundAlpha = 1
+            nextTrains.textBackdrops = false
+            nextTrains.frame = frame
+            styleAsCard(nextTrains.layer, closeUp)
+            return
+        }
+        let glass = boardGlass ?? makeGlass()
+        boardGlass = glass
+        glass.isHidden = false
+        glass.frame = frame
+        glass.appearance = NSAppearance(named: theme.isLight ? .aqua : .darkAqua)  // the glass follows the theme
+        let tint = CGFloat(settings.boardTint)
+        if #available(macOS 26.0, *), let glass = glass as? NSGlassEffectView {
+            glass.style = style == .clearGlass ? .clear : .regular
+            glass.cornerRadius = 8
+            glass.tintColor = tint > 0 ? theme.background.withAlphaComponent(tint) : nil
+            nextTrains.backgroundAlpha = 0
+        } else if let glass = glass as? NSVisualEffectView {
+            glass.material = theme.isLight ? .popover : .hudWindow
+            glass.layer?.cornerRadius = 8
+            glass.layer?.masksToBounds = true
+            nextTrains.backgroundAlpha = tint  // tints the blur, as the glass's tint color does on macOS 26
+        }
+        nextTrains.textBackdrops = style == .clearGlass && settings.boardBackdrops
+        nextTrains.frame = glass.bounds
+        nextTrains.autoresizingMask = [.width, .height]
+        nextTrains.layer?.borderWidth = 0  // the glass draws its own edge
+    }
+
+    /// Liquid Glass on macOS 26 and later; before that, a blur of the map behind the board.
+    private func makeGlass() -> NSView {
+        let glass: NSView
+        if #available(macOS 26.0, *) {
+            let liquid = NSGlassEffectView()
+            liquid.contentView = nextTrains
+            glass = liquid
+        } else {
+            let blur = NSVisualEffectView()
+            blur.blendingMode = .withinWindow  // blurs the map in this window, not what's behind the window
+            blur.state = .active
+            blur.wantsLayer = true
+            blur.addSubview(nextTrains)
+            glass = blur
+        }
+        addSubview(glass)
+        return glass
     }
 
     required init?(coder: NSCoder) {
@@ -503,8 +570,8 @@ final class SubwayView: NSView {
             let boardWidth = min(max(w * 0.22, 250), 330)
             let boardBottom: CGFloat = showsStatus ? 32 : margin  // above the status line
             nextTrains.isHidden = false
-            nextTrains.frame = CGRect(x: margin, y: boardBottom, width: boardWidth,
-                                      height: boardHeight(width: boardWidth, maxHeight: h * 0.7))
+            placeBoard(CGRect(x: margin, y: boardBottom, width: boardWidth,
+                              height: boardHeight(width: boardWidth, maxHeight: h * 0.7)), closeUp: true)
         } else if split {
             let fullWidth = min(h * mapAspect, w * 0.6)
             let gap: CGFloat = 2  // thin black divider
@@ -520,13 +587,14 @@ final class SubwayView: NSView {
                                                                          autoRange: 1...10), scale: scale)
             fullPanel.setOutline(zoomPanel?.mapRect)
             nextTrains.isHidden = false
-            nextTrains.frame = CGRect(x: rightX, y: 0, width: rightWidth, height: board)
+            placeBoard(CGRect(x: rightX, y: 0, width: rightWidth, height: board), closeUp: false)
         } else {
             fullPanel.dotRange = 6...10
             fullPanel.layout(frame: bounds, showing: document.bounds, scale: scale)
             fullPanel.setOutline(nil)
             zoomPanel?.root.isHidden = true
             nextTrains.isHidden = true
+            boardGlass?.isHidden = true
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -642,7 +710,8 @@ final class SubwayView: NSView {
         // AppKit-drawn views aren't captured by layer.render, so draw the next-train panel explicitly.
         if !nextTrains.isHidden, let rep = nextTrains.bitmapImageRepForCachingDisplay(in: nextTrains.bounds) {
             nextTrains.cacheDisplay(in: nextTrains.bounds, to: rep)
-            if let image = rep.cgImage { ctx.draw(image, in: nextTrains.frame) }
+            // (On glass the board is inside the glass view; the glass itself can't be captured off screen.)
+            if let image = rep.cgImage { ctx.draw(image, in: nextTrains.convert(nextTrains.bounds, to: self)) }
         }
         if !offlineLayer.isHidden {  // it sits above the panel on screen, so draw it again on top here
             ctx.saveGState()
