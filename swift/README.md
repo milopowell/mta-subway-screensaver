@@ -61,6 +61,7 @@ Preview app options (run the executable inside the app directly):
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move
 - `--time-lapse`: force the time-lapse (normally a backup when live data is unavailable)
 - `--path-report out`: check the track every hop follows; writes `out.png`
+- `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker
 - `--time-lapse-report [--record 420 --seconds 60]`: record live history, replay it, and check the replay is smooth
 - `--timing-report [--seconds 180]`: compare the dots' station arrivals and departures with the real trains

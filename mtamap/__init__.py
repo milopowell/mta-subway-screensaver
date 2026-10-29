@@ -65,6 +65,14 @@ class OfficialMap:
             assigned[station] = int(np.linalg.norm(centers - np.asarray(point), axis=1).argmin())
 
         self.assigned, self.names, self.served = assigned, names, served
+        # Which routes run between each pair of neighboring stations, busiest first (for rerouted trains).
+        trips_between = defaultdict(Counter)
+        for p in patterns.itertuples():
+            seq = [parent_of[s] for s in p.stops]
+            for x, y in zip(seq, seq[1:]):
+                if x != y:
+                    trips_between[(x, y)][p.route_id] += p.n_trips
+        self.routes_between = {pair: [r for r, _ in c.most_common()] for pair, c in trips_between.items()}
         self._hop_cache = {}
         self.report = {
             "paths": len(it.paths), "labels": len(it.texts), "station circles": len(self.circles),
@@ -108,14 +116,51 @@ class OfficialMap:
         return (lo[0], lo[1], hi[0], hi[1])
 
     def hop_line(self, route, a, b):
-        """The stretch of `route`'s colored line from station a to station b (straight line if it can't follow it)."""
+        """The track a `route` train follows from station a to station b: its own colored line, or, when it can't
+        follow that (a rerouted train running on another line's tracks), the track of a route that normally runs
+        between the two stations (`pair_line`); a straight line if neither works."""
         key = (route, a, b)
         if key not in self._hop_cache:
             pa, pb = self.station_point(route, a), self.station_point(route, b)
             if pa is None or pb is None:
                 self._hop_cache[key] = (None, False)
             else:
-                self._hop_cache[key] = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(route), []))
+                line, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(route), []))
+                if not followed:
+                    other = self.pair_line(a, b)
+                    if other is not None:
+                        line, followed = other, True
+                self._hop_cache[key] = (line, followed)
+        return self._hop_cache[key]
+
+    def pair_line(self, a, b, via=True):
+        """The track between neighboring stations a and b of the busiest route that normally runs from a to b along
+        its own colored line; failing that (an express skipping a stop, e.g. the D from Grand St across the
+        Manhattan Bridge to Atlantic Av, past DeKalb Av), two such stretches through one station in between.
+        None if there is neither."""
+        key = ("pair", a, b, via)
+        if key not in self._hop_cache:
+            self._hop_cache[key] = None
+            for r in self.routes_between.get((a, b), []):
+                pa, pb = self.station_point(r, a), self.station_point(r, b)
+                if pa is not None and pb is not None:
+                    line, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(r), []))
+                    if followed:
+                        self._hop_cache[key] = line
+                        break
+            if self._hop_cache[key] is None and via:
+                best = None
+                for (x, c) in self.routes_between:
+                    if x != a or (c, b) not in self.routes_between:
+                        continue
+                    first, second = self.pair_line(a, c, via=False), self.pair_line(c, b, via=False)
+                    if first is not None and second is not None:
+                        joined = LineString(list(first.coords) + list(second.coords))
+                        if best is None or joined.length < best.length:
+                            best = joined
+                ca, cb = (np.asarray(self.clusters[self.assigned[x]]["center"]) for x in (a, b))
+                if best is not None and best.length <= 3 * np.linalg.norm(cb - ca) + 20:  # not a detour
+                    self._hop_cache[key] = best
         return self._hop_cache[key]
 
     # ---- drawing ----

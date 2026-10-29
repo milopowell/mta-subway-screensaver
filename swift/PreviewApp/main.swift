@@ -18,6 +18,7 @@ import AppKit
 //   --timing-report [--seconds S]        compare the dots' station arrivals/departures with the real trains
 //   --time-lapse-report [--record S --seconds S]  record live history, replay it, and check the replay is smooth
 //   --path-report <file>                 check the track every hop is drawn along; writes <file>.png
+//   --path-audit [--seconds S]           run live motion and report off-track glides, snaps, fades, slow glides
 //   --picker-snapshot <file.png> [--home IDs --line ROUTE]  render the home-station picker
 //   --time-lapse                         force the time-lapse (normally a backup when live data is unavailable)
 //   --simulate-outage FEED[,FEED…]|all   treat those feeds as failed after the first download
@@ -57,6 +58,103 @@ func commandLineTrips(network: SubwayNetwork) -> (trips: [Trip], now: Double)? {
         return (result!.trips, result!.fetchedAt)
     }
     return nil
+}
+
+if arguments.contains("--path-audit") {
+    // Runs the live motion (MotionPlanner, a download every 30 s like the app) for --seconds (default 180) and
+    // reports anything that looks off: glides that don't follow the drawn track, dots that snap (move instantly)
+    // or fade to another place, and the slowest glides.
+    let view = SubwayView(frame: .zero)
+    guard let hooks = view.testHooks else { fail("network.json isn't bundled") }
+    let network = hooks.network
+    let seconds = Double(value(after: "--seconds") ?? "180") ?? 180
+    let planner = MotionPlanner(locator: hooks.locator)
+    planner.glideLog = []
+    var cache = FeedCache(feeds: network.settings.feeds, keepFor: network.settings.staleAfterS)
+    func name(_ id: String) -> String { network.stations[id]?.name ?? id }
+    var position: [String: CGPoint] = [:]  // where each dot is (or is gliding to)
+    var routeOf: [String: String] = [:]
+    var snaps: [(distance: CGFloat, text: String)] = [], fades = 0, reappeared: [String: Double] = [:]
+    let start = Date().timeIntervalSince1970
+    var tick = start, lastDownload = -1e9, trips: [Trip] = []
+    while tick < start + seconds {
+        Thread.sleep(forTimeInterval: max(0, tick - Date().timeIntervalSince1970))
+        if tick - lastDownload >= 30 {
+            var result: (feeds: [String: [Trip]], fetchedAt: Double)?
+            let done = DispatchSemaphore(value: 0)
+            Task.detached { result = await FeedClient.fetchEach(settings: network.settings); done.signal() }
+            done.wait()
+            cache.receive(result!.feeds, at: result!.fetchedAt)
+            trips = cache.trips
+            for trip in trips { routeOf["\(trip.feed)|\(trip.tripID)"] = trip.routeID }
+            lastDownload = tick
+        }
+        for command in planner.update(trips: trips, now: tick) {
+            switch command {
+            case .place(let key, let point, _):
+                if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 3 {
+                    let d = hypot(p.x - point.x, p.y - point.y)
+                    snaps.append((d, String(format: "%@ snapped %.0f units (to %.0f, %.0f)", routeOf[key] ?? "?", d, point.x, point.y)))
+                }
+                position[key] = point
+            case .travel(let key, let path, _):
+                if let p = position[key], let first = path.first, hypot(p.x - first.x, p.y - first.y) > 3 {
+                    let d = hypot(p.x - first.x, p.y - first.y)
+                    snaps.append((d, String(format: "%@ started a glide %.0f units from its dot", routeOf[key] ?? "?", d)))
+                }
+                position[key] = path.last
+            case .remove(let key):
+                if position[key] != nil { fades += 1; reappeared[key] = tick }
+                position[key] = nil
+            }
+        }
+        tick += 1
+    }
+    let glides = planner.glideLog ?? []
+    print(String(format: "%.0f s of live motion: %d glides", seconds, glides.count))
+    var byKind: [String: Int] = [:]
+    for g in glides { byKind[g.kind.rawValue, default: 0] += 1 }
+    print("  by kind: \(byKind.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+    let offTrack = glides.filter { !$0.followsTrack }
+    print("\nGlides not following the drawn track: \(offTrack.count) (\(String(format: "%.1f", Double(offTrack.count) / Double(max(glides.count, 1)) * 100))%)")
+    for g in offTrack.sorted(by: { $0.length > $1.length }).prefix(12) {
+        print(String(format: "  %@ %@ → %@  (%@, %.0f units straight)", g.route, name(g.from), name(g.to), g.kind.rawValue, g.length))
+    }
+    print("\nSnaps (a dot moving instantly, or a glide starting away from its dot): \(snaps.count); fades out: \(fades)")
+    for s in snaps.sorted(by: { $0.distance > $1.distance }).prefix(10) { print("  " + s.text) }
+    print("  planner's reasons for fades: \(planner.stats.teleportReasons)")
+    // Line check: is each train on its own line? Off its own line is expected for a rerouted train (a hop its route
+    // doesn't normally make) and suspicious otherwise.
+    print("\nLine check (each glide's average distance from its own colored line; on line = within 3 map units):")
+    var perRoute: [String: (total: Int, own: Int, rerouted: Int, odd: Int)] = [:]
+    var odd: [(distance: Double, text: String)] = []
+    for g in glides where g.kind != .placeholder {
+        let d = hooks.locator.distanceFromOwnLine(route: g.route, path: g.path)
+        var row = perRoute[g.route] ?? (0, 0, 0, 0)
+        row.total += 1
+        if d <= 3 {
+            row.own += 1
+        } else if !hooks.locator.isPatternHop(route: g.route, from: g.from, to: g.to) {
+            row.rerouted += 1
+        } else {
+            row.odd += 1
+            odd.append((d, String(format: "%@ %@ → %@: %.0f units from its own line on average (%@)", g.route, name(g.from),
+                                  name(g.to), d, g.kind.rawValue)))
+        }
+        perRoute[g.route] = row
+    }
+    print("  route  glides  on own line  rerouted  off own line on a normal hop")
+    for (route, r) in perRoute.sorted(by: { $0.key < $1.key }) {
+        print(String(format: "  %-5@  %6d  %11d  %8d  %6d", route, r.total, r.own, r.rerouted, r.odd))
+    }
+    for o in odd.sorted(by: { $0.distance > $1.distance }).prefix(15) { print("  " + o.text) }
+
+    print("\nSlowest glides (longest on screen):")
+    for g in glides.sorted(by: { ($0.end - $0.start) > ($1.end - $1.start) }).prefix(10) {
+        print(String(format: "  %@ %@ → %@  %.0f s for %.0f units (%.2f units/s, %@)", g.route, name(g.from), name(g.to),
+                     g.end - g.start, g.length, g.length / max(g.end - g.start, 0.01), g.kind.rawValue))
+    }
+    exit(0)
 }
 
 if let output = value(after: "--picker-snapshot") {

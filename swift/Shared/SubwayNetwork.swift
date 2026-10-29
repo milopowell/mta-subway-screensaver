@@ -76,11 +76,15 @@ struct SubwayNetwork: Decodable {
     /// "route|fromStation|toStation" → the track a train follows on that hop, computed by the notebook (§8) so
     /// both draw exactly the same path. Hops that can't follow the track are missing (use a straight line).
     let hopPaths: [String: [[Double]]]?
+    /// "fromStation|toStation" → the track between neighboring stations, for a train rerouted onto another
+    /// line's tracks (its own route has no path there).
+    let pairPaths: [String: [[Double]]]?
     let focusViews: [String: [String]]  // view name → station IDs
 
     enum CodingKeys: String, CodingKey {
         case meta, settings, routes, platforms, stations, patterns
-        case hopTimes = "hop_times", routeLines = "route_lines", focusViews = "focus_views", hopPaths = "hop_paths"
+        case hopTimes = "hop_times", routeLines = "route_lines", focusViews = "focus_views", hopPaths = "hop_paths",
+             pairPaths = "pair_paths"
     }
 
     /// Loads network.json from the app's or screensaver's bundled resources.

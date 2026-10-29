@@ -103,9 +103,10 @@ final class Locator {
         return CGPoint(s.points[route] ?? s.center)
     }
 
-    /// The track a train follows from station a to b: the path the notebook exported (`hop_paths`, routed along
-    /// the joined pieces of the route's colored line, as locate_from_export reads it). For the rare hop that isn't
-    /// exported: the stretch of a single piece of the line between the two stations, or a straight line.
+    /// The track a train follows from station a to b, read like locate_from_export: the path the notebook exported
+    /// for this route (`hop_paths`, routed along the joined pieces of its colored line); for a hop that isn't
+    /// exported, the stretch of a single piece of the route's line between the two stations; failing that (a train
+    /// rerouted onto another line's tracks), the track between the two stations (`pair_paths`); else a straight line.
     func hopLine(route: String, from a: String, to b: String) -> (line: Polyline, followed: Bool) {
         let key = "\(route)|\(a)|\(b)"
         if let cached = hopCache[key] { return cached }
@@ -125,6 +126,9 @@ final class Locator {
             }
         }
         var result = straight
+        if let pair = net.pairPaths?["\(a)|\(b)"], pair.count > 1 {
+            result = (Polyline(pair.map(CGPoint.init)), true)
+        }
         if let line = best?.line {
             let ta = line.nearest(to: pa).along, tb = line.nearest(to: pb).along
             var piece = line.piece(from: min(ta, tb), to: max(ta, tb))
@@ -248,6 +252,28 @@ final class Locator {
                        line: hopLine(route: route, from: a, to: next).line)
         }
         return nil
+    }
+
+    /// How far, on average, a path runs from the route's own colored line, in map units: about 0 when the train rides
+    /// its own line; larger when it follows another line's track (a reroute) or a straight line. For checking.
+    func distanceFromOwnLine(route: String, path: [CGPoint]) -> Double {
+        let own = lines[net.routes[route]?.color ?? ""] ?? []
+        guard !own.isEmpty, !path.isEmpty else { return .infinity }
+        let total = path.reduce(0.0) { sum, p in sum + Double(own.map { $0.nearest(to: p).distance }.min()!) }
+        return total / Double(path.count)
+    }
+
+    /// True if stations a and b are neighboring stops in one of the route's stop patterns (a hop it normally makes).
+    func isPatternHop(route: String, from a: String, to b: String) -> Bool {
+        for p in patternsByRoute[route] ?? [] {
+            var previous: String?
+            for platform in p.stops {
+                guard let s = stationOf(platform), s != previous else { continue }
+                if previous == a, s == b { return true }
+                previous = s
+            }
+        }
+        return false
     }
 
     /// The station of a platform (nil if it isn't on the map).

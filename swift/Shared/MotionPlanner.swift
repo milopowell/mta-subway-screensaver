@@ -42,18 +42,34 @@ final class MotionPlanner {
     var catchUpSpeed: Double = 6
     /// Shortest a hop's glide may be, so short hops don't flick past.
     var minTravelSeconds: Double = 4
+    /// Longest a hop's glide may be: a hop drawn long on the map (96 St to 110 St on the 2 and 3, around Central
+    /// Park) glides faster instead of crawling for minutes; it still arrives on time.
+    var maxTravelSeconds: Double = 40
 
     /// Counters, for checking behavior (e.g. from the preview app's --plan-report).
     struct Stats { var travels = 0, catchUps = 0, teleports = 0, waitsAhead = 0, teleportReasons: [String: Int] = [:] }
     private(set) var stats = Stats()
 
     /// One glide, as recorded for the timing report: which hop, and when the dot leaves and arrives.
+    /// Why a glide happened.
+    enum GlideKind: String {
+        case normal  // the next hop of the timetable
+        case firstSight = "first sight"  // a train seen for the first time, already part-way along a hop
+        case catchUp = "catch-up"  // behind the predictions: hurrying along a hop it should have finished
+        case placeholder  // a parked dot that wasn't at a station, gliding straight to where the train is
+    }
+
     struct Glide {
-        let key: String, from: String, to: String
+        let key: String, route: String, from: String, to: String
         let start: Double, end: Double
         /// The arrival time the predictions gave for this hop when the glide started.
         let predictedArrival: Double
-        let catchUp: Bool
+        let kind: GlideKind
+        /// Length of the path in map units, and whether it follows the drawn track (false = a straight line).
+        let length: Double, followsTrack: Bool
+        /// The path itself (map units).
+        let path: [CGPoint]
+        var catchUp: Bool { kind == .catchUp || kind == .placeholder }
     }
     /// When non-nil, every glide is appended here (off by default: the screensaver doesn't need it).
     var glideLog: [Glide]?
@@ -82,7 +98,7 @@ final class MotionPlanner {
     /// never longer than the predictions allow for the hop.
     private func travelTime(_ leg: Locator.Leg) -> Double {
         let cruise = max(Double(leg.line.length) / cruiseSpeed, minTravelSeconds)
-        return min(cruise, max(leg.arrive - leg.depart, minTravelSeconds))
+        return min(cruise, max(leg.arrive - leg.depart, minTravelSeconds), maxTravelSeconds)
     }
 
     /// Decides what every train does now. Returns commands only for trains whose plan changed.
@@ -130,7 +146,8 @@ final class MotionPlanner {
             let done = (now - departAt) / max(current.arrive - departAt, 1e-6)  // fraction of the glide already done
             let line = current.line
             let rest = line.piece(from: CGFloat(done) * line.length, to: line.length)
-            return travel(key, leg: current, path: rest.points, duration: max(current.arrive - now, 1), now: now)
+            return travel(key, leg: current, path: rest.points, duration: min(max(current.arrive - now, 1), maxTravelSeconds),
+                          now: now, kind: .firstSight)
 
         case .traveling(let leg, let start, let duration, _)?:
             if now < start + duration { return [] }  // still gliding: never interrupt a hop
@@ -151,20 +168,22 @@ final class MotionPlanner {
                 if let station { phases[key] = .stopped(station: station, point: point, look: .stopped) }
             }
             if station == nil {
-                // Still unknown but close by: glide straight to where the train should be.
+                // Still unknown but very close (another circle of the same station): glide straight there. Further
+                // away it fades across below, rather than cutting across the map in a straight line.
                 let target = stationPoint(current, at: current.from)
                 let distance = Double(hypot(target.x - point.x, target.y - point.y))
-                if distance < 60 {
+                if distance < 12 {
                     stats.catchUps += 1
                     let hop = Locator.Leg(route: current.route, from: current.from, to: current.from, depart: now,
                                           arrive: now, line: Polyline([point, target]))
                     let duration = max(distance / catchUpSpeed, minTravelSeconds / 2)
-                    return travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, catchUp: true)
+                    return travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, kind: .placeholder)
                 }
             }
             if station == current.from {
                 if now >= departAt {  // time to go
-                    let duration = max(current.arrive - now, Double(current.line.length) / catchUpSpeed, minTravelSeconds / 2)
+                    let duration = min(max(current.arrive - now, Double(current.line.length) / catchUpSpeed, minTravelSeconds / 2),
+                                       maxTravelSeconds)
                     return travel(key, leg: current, path: current.line.points, duration: duration, now: now)
                 }
                 return stop(key, station: station, point: stationPoint(current, at: current.from), look: .stopped)
@@ -179,7 +198,7 @@ final class MotionPlanner {
                 ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4) {
                 stats.catchUps += 1
                 let duration = max(Double(behind.line.length) / catchUpSpeed, minTravelSeconds / 2)
-                return travel(key, leg: behind, path: behind.line.points, duration: duration, now: now, catchUp: true)
+                return travel(key, leg: behind, path: behind.line.points, duration: duration, now: now, kind: .catchUp)
             }
             // Somewhere unconnected (e.g. a reroute or a brand-new prediction): fade to the right place.
             stats.teleports += 1
@@ -207,7 +226,7 @@ final class MotionPlanner {
     }
 
     private func travel(_ key: String, leg: Locator.Leg, path: [CGPoint], duration: Double, now: Double,
-                        catchUp: Bool = false) -> [TrainCommand] {
+                        kind: GlideKind = .normal) -> [TrainCommand] {
         stats.travels += 1
         // Start and end exactly at the station dots: the colored line can pass a few map units from a station's
         // circle, and the dot stands at the circle before and after the glide (otherwise it would snap).
@@ -219,8 +238,12 @@ final class MotionPlanner {
             }
             if let last = path.last, hypot(last.x - end.x, last.y - end.y) > 0.5 { path.append(end) }
         }
-        glideLog?.append(Glide(key: key, from: leg.from, to: leg.to, start: now, end: now + duration,
-                               predictedArrival: leg.arrive, catchUp: catchUp))
+        if glideLog != nil {
+            let follows = kind != .placeholder && locator.hopLine(route: leg.route, from: leg.from, to: leg.to).followed
+            glideLog?.append(Glide(key: key, route: leg.route, from: leg.from, to: leg.to, start: now, end: now + duration,
+                                   predictedArrival: leg.arrive, kind: kind, length: Double(Polyline(path).length),
+                                   followsTrack: follows, path: path))
+        }
         phases[key] = .traveling(leg: leg, start: now, duration: duration, path: path)
         return [.travel(key: key, path: path, duration: duration)]
     }

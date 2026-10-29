@@ -104,6 +104,8 @@ On live data (95 seconds, 4 feed downloads): about 80 trains are gliding at any 
 
 Each hop is drawn along the route's colored line on the official map. The PDF draws each color in several pieces (109 in all), so `mtamap.match.TrackNetwork` joins them: ends that touch, and ends that point straight at each other across a gap (where a line passes under a station's label box). A hop is the shortest route through that network between the two stations' circles. §8 exports every hop's path (`hop_paths` in network.json) so the app draws exactly the same tracks. 1,956 of the 2,084 hops in the stop patterns (94%) follow the track; the rest, about 1.5% of train trips, are drawn as straight lines, mostly around the Atlantic Av-Barclays Ctr transfer box.
 
+A train rerouted onto another line's tracks (common at night and on weekends: the E through the 63 St tunnel, the F and D on the 8 Av line) can't follow its own colored line. It then follows the track of a route that normally runs between the two stations, or two such stretches through one station in between (an express skipping a stop). §8 exports these as `pair_paths`. On a night with several reroutes, `--path-audit` measured 1 glide in 366 off the drawn track.
+
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. `--path-report` lists the remaining straight hops and draws them over the map.
 
 ### Timing accuracy
@@ -230,6 +232,7 @@ cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/Subwa
 | `$APP --snapshot out.png --live` | Renders the full view with live trains to a PNG, without a window |
 | `$APP --snapshot out.png --live --layout closeUp --home 122,A21` | The same, in a given layout and with given home stations (the saved choices are unchanged) |
 | `$APP --time-lapse-report --record 420 --seconds 60` | Records live history for 7 minutes, replays it, and checks every glide starts where its dot is |
+| `$APP --path-audit --seconds 180` | Runs live motion and reports glides off the drawn track, position jumps and the slowest glides |
 | `$APP --path-report out` | Checks the track every hop follows; writes `out.png` with straight hops in red |
 | `$APP --picker-snapshot out.png --line A` | Renders the home-station picker (optionally browsing one line) |
 | `swiftc -O tools/test_saver.swift -o /tmp/test_saver && /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver` | Loads the built screensaver as macOS does, runs it on live data, renders it, measures CPU, and checks it stops on `willstop` |
@@ -255,6 +258,7 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | `WATER`, `PARKS` | `mtamap/style.py` | dark navy, dark green | Tints for water and parks on the black map (re-run §8 and rebuild after changing) |
 | `catchUpSpeed` | `swift/Shared/MotionPlanner.swift` | 6 | Fastest glide when a train is behind the data |
 | `minTravelSeconds` | `swift/Shared/MotionPlanner.swift` | 4 | Shortest glide, so very short hops do not flick past |
+| `maxTravelSeconds` | `swift/Shared/MotionPlanner.swift` | 40 | Longest glide: hops drawn long on the map (96 St to 110 St on the 2 and 3) glide faster instead of crawling |
 | `pollInterval` | `swift/Shared/FeedClient.swift` (FeedHub) | 30 | Seconds between feed downloads |
 | `retryInterval` | `swift/Shared/FeedClient.swift` (FeedHub) | 10 | Seconds before retrying after a round in which any feed failed |
 | home stations | tram-button panel, or the screensaver's Options sheet | 79 St (1), 81 St (B, C) | Up to 4 stations, shown in the magnified view and on the next-train board |

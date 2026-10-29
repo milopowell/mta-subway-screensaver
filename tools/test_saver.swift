@@ -6,6 +6,9 @@
 //   swiftc -O tools/test_saver.swift -o /tmp/test_saver
 //   /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver_test
 // Writes <out>_screen.png and <out>_options.png.
+//
+// Long run: add --soak SECONDS to keep the saver running that long, printing its memory footprint (as Activity
+// Monitor shows it) and CPU use every minute, then a summary; the other checks run afterwards.
 
 import AppKit
 import ScreenSaver
@@ -14,6 +17,16 @@ func cpuSeconds() -> Double {
     var ts = timespec()
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts)
     return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
+}
+
+/// This process's memory footprint in MB (what Activity Monitor shows as "Memory").
+func footprintMB() -> Double {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    }
+    return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : -1
 }
 
 /// Runs the main loop for `seconds` and returns the CPU used meanwhile, as a percentage of one core.
@@ -30,10 +43,11 @@ func writePNG(_ image: CGImage, _ path: String) {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3, let bundle = Bundle(path: arguments[1]) else {
-    print("usage: test_saver <SubwaySaver.saver> <output prefix>")
+guard arguments.count >= 3, let bundle = Bundle(path: arguments[1]) else {
+    print("usage: test_saver <SubwaySaver.saver> <output prefix> [--soak SECONDS]")
     exit(1)
 }
+let soakSeconds = arguments.firstIndex(of: "--soak").flatMap { $0 + 1 < arguments.count ? Double(arguments[$0 + 1]) : nil }
 let out = arguments[2]
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.prohibited)
@@ -58,6 +72,28 @@ print("started; waiting for the first downloads...")
 _ = run(15)
 let cpuRunning = run(30)
 print(String(format: "CPU while running: %.1f%% of one core", cpuRunning))
+
+
+if let soakSeconds {
+    // Sample once a minute: elapsed minutes, memory footprint, CPU over that minute.
+    print("minute  memory MB  CPU %")
+    var samples: [(minute: Double, mb: Double)] = []
+    let start = Date()
+    while Date().timeIntervalSince(start) < soakSeconds {
+        let cpu = run(60)
+        let minute = Date().timeIntervalSince(start) / 60
+        let mb = footprintMB()
+        samples.append((minute, mb))
+        print(String(format: "%6.0f  %9.1f  %5.1f", minute, mb, cpu))
+        fflush(stdout)
+    }
+    // Growth: compare the average of the first and last quarter-hour (single samples are noisy).
+    let early = samples.prefix(15).map(\.mb), late = samples.suffix(15).map(\.mb)
+    let hours = (samples.last!.minute - samples.first!.minute) / 60
+    let growth = (late.reduce(0, +) / Double(late.count) - early.reduce(0, +) / Double(early.count)) / max(hours, 1e-6)
+    print(String(format: "soak: %.1f h; memory first %.1f MB, peak %.1f MB, last %.1f MB; trend %+.1f MB per hour",
+                 hours, samples.first!.mb, samples.map(\.mb).max()!, samples.last!.mb, growth))
+}
 
 // What it shows: the layer tree (map, trains), then the AppKit-drawn views (next-train board) on top.
 let scale: CGFloat = 2

@@ -43,30 +43,44 @@ final class TrainLayers {
         for command in commands {
             switch command {
             case .place(let key, let point, let look):
-                let layer = layers[key] ?? makeLayer(key, at: toView(point), look: look)
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
+                let target = toView(point)
+                var layer = layers[key] ?? makeLayer(key, at: target, look: look)
+                let now = layer.presentation()?.position ?? layer.position  // where the dot is on screen
+                if animated, distance(now, target) > TrainLayers.fadeDistance {
+                    layer = replace(key, at: target, look: look)  // far: fade out here and in there
+                }
+                let slide = animated && distance(now, target) > 0.5 && distance(now, target) <= TrainLayers.fadeDistance
                 layer.removeAnimation(forKey: "travel")
-                layer.position = toView(point)
+                CATransaction.begin()
+                if slide {
+                    CATransaction.setAnimationDuration(0.5)  // close: slide over instead of jumping
+                } else {
+                    CATransaction.setDisableActions(true)
+                }
+                layer.position = target
                 CATransaction.commit()
                 setLook(look, key: key, on: layer, animated: animated)
 
             case .travel(let key, let path, let duration):
                 guard let first = path.first else { continue }
                 let points = path.map(toView)
-                let layer = layers[key] ?? makeLayer(key, at: toView(first), look: .moving)
+                var layer = layers[key] ?? makeLayer(key, at: toView(first), look: .moving)
+                let now = layer.presentation()?.position ?? layer.position
+                if animated, distance(now, points[0]) > TrainLayers.fadeDistance {
+                    layer = replace(key, at: points[0], look: .moving)  // far from the glide's start: fade across
+                }
                 setLook(.moving, key: key, on: layer, animated: animated)
+                let start = layer.presentation()?.position ?? layer.position
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 layer.position = animated ? points[points.count - 1] : points[0]  // where it ends up / where it is
                 CATransaction.commit()
-                guard animated, points.count > 1 else { continue }
+                guard animated, points.count > 1 || distance(start, points[0]) > 0.5 else { continue }
 
-                // Start from where the dot is on screen right now (normally the path's first point).
+                // Start from where the dot is on screen right now, so it never jumps onto the path.
                 let route = CGMutablePath()
-                route.move(to: layer.presentation()?.animation(forKey: "travel") != nil
-                           ? (layer.presentation()?.position ?? points[0]) : points[0])
-                for p in points.dropFirst() { route.addLine(to: p) }
+                route.move(to: start)
+                for p in (distance(start, points[0]) > 0.5 ? points : Array(points.dropFirst())) { route.addLine(to: p) }
                 let glide = CAKeyframeAnimation(keyPath: "position")
                 glide.path = route
                 glide.calculationMode = .paced  // even spacing along the track's length…
@@ -77,13 +91,35 @@ final class TrainLayers {
             case .remove(let key):
                 looks[key] = nil
                 guard let layer = layers.removeValue(forKey: key) else { continue }
-                CATransaction.begin()
-                CATransaction.setAnimationDuration(0.6)
-                CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
-                layer.opacity = 0
-                CATransaction.commit()
+                fadeOut(layer)
             }
         }
+    }
+
+    /// A dot further than this (in points) from where it must be fades out and back in there; a nearer one slides.
+    private static let fadeDistance: CGFloat = 30
+
+    private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+        hypot(a.x - b.x, a.y - b.y)
+    }
+
+    private func fadeOut(_ layer: CALayer) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.6)
+        CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
+        layer.opacity = 0
+        CATransaction.commit()
+    }
+
+    /// Fades a train's dot out where it is and a new one in at `position`.
+    private func replace(_ key: String, at position: CGPoint, look: TrainLook) -> CALayer {
+        if let old = layers.removeValue(forKey: key) {
+            old.removeAnimation(forKey: "travel")
+            old.position = old.presentation()?.position ?? old.position
+            fadeOut(old)
+        }
+        looks[key] = nil
+        return makeLayer(key, at: position, look: look)
     }
 
     /// Removes every marker at once (before re-creating them, e.g. after a resize).
