@@ -20,7 +20,12 @@ final class TrainLayers {
     /// Simpler motion, for the time-lapse: at 20 times speed there are dozens of stops and starts a second, so dots
     /// change look instantly instead of over `morphSeconds`, and glides (about 3 s long there) skip the overpass
     /// masks. Both are expensive in bulk, and neither is visible at that speed.
-    var simple = false
+    var simple = false {
+        didSet {
+            guard simple != oldValue else { return }
+            for (key, layer) in layers { breathe(layer, looks[key] == .stopped && bullets[key] != nil && !simple) }
+        }
+    }
     /// Colors for the dots (dark or light map).
     var theme: Theme = .dark {
         didSet {
@@ -304,5 +309,34 @@ final class TrainLayers {
         layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0
         layer.zPosition = look == .moving ? 2 : (look == .stopped ? 1 : 0)  // moving trains on top
         CATransaction.commit()
+        breathe(layer, look == .stopped && bullets[key] != nil && !simple)
+    }
+
+    // ---- Breathing ----
+
+    /// Seconds for one breath of a waiting train's bullet (dim and back).
+    private static let breathSeconds: CFTimeInterval = 3.6
+
+    /// A waiting train's bullet breathes: it dims a little and comes back, slowly. Kept cheap for the screen: the
+    /// bullet is a finished image, so a breath only changes how strongly it is blended in, never redraws it; the
+    /// animation asks for about 12 frames a second instead of the display's 60 to 120 (a slow breath looks the same);
+    /// and every bullet keeps the same beat, so the map breathes as one. The dimming is added to the layer's own
+    /// opacity, so fading in and out still works on top of it.
+    private func breathe(_ layer: CALayer, _ on: Bool) {
+        guard on else { layer.removeAnimation(forKey: "breathe"); return }
+        guard layer.animation(forKey: "breathe") == nil else { return }
+        let breath = CAKeyframeAnimation(keyPath: "opacity")
+        breath.values = [0, -0.45, 0]
+        breath.keyTimes = [0, 0.5, 1]
+        breath.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        breath.isAdditive = true
+        breath.duration = TrainLayers.breathSeconds
+        breath.repeatCount = .infinity
+        breath.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 12)
+        // In step with every other bullet: each breath starts on a whole multiple of the period, so a new bullet
+        // joins the beat partway through rather than starting its own.
+        let now = layer.convertTime(CACurrentMediaTime(), from: nil)
+        breath.beginTime = (now / TrainLayers.breathSeconds).rounded(.down) * TrainLayers.breathSeconds
+        layer.add(breath, forKey: "breathe")
     }
 }
