@@ -1,8 +1,11 @@
 """Styling + cropping for the interpreted MTA diagram: black background (dark theme) or the paper map's own colors
 (light theme)."""
+import matplotlib
 import numpy as np
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
+from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 TITLE_Y = 1978.0  # everything above this is the title bar
 LEGEND = (1010.0, 1489.0)  # x >= and y >= this is the legend / info panel
@@ -82,11 +85,17 @@ def prepare(drawing):
     paths = drawing["paths"]
     for i, p in enumerate(paths):
         p["casing"] = False
+        p["pattern_casing"] = False
         s = p["stroke"]
         if s is not None and is_neutral(s) and lum(s[:3]) > 0.93 and p["fill"] is None:
             for q in paths[i + 1: i + 3]:
                 if q["stroke"] is not None and q["segs"] == p["segs"] and q["lw"] < p["lw"]:
                     p["casing"] = True
+                    break
+                # Under a hatched (part-time) line: also a casing, but only for drawing (the station matching never
+                # saw these as casings, so its flag stays as it was).
+                if q.get("stroke_pattern") and q["segs"] == p["segs"] and q["lw"] < p["lw"]:
+                    p["pattern_casing"] = True
                     break
     bullets = [(p["lo"], p["hi"]) for p in drawing["paths"]
                if p["fill"] is not None and is_yellow(p["fill"]) and p["curves"] and max(p["hi"] - p["lo"]) < 16]
@@ -153,7 +162,7 @@ def style_path(p, bullets):
         c = tuple(min(1, max(0, x)) for x in s[:3])
         if is_neutral(c) and lum(c) < 0.2:
             ec = c if p["lw"] >= 3 else (0.8, 0.8, 0.8)  # keep pill outlines black, lighten thin leader lines
-        elif is_neutral(c) and lum(c) > 0.93 and (p["lw"] < 6 or p.get("casing")):
+        elif is_neutral(c) and lum(c) > 0.93 and (p["lw"] < 6 or p.get("casing") or p.get("pattern_casing")):
             ec = (0, 0, 0)  # white casings around lines -> black, so they still separate lines
         else:
             ec = c
@@ -215,12 +224,60 @@ def clean_text(s):
     return "".join(ch for ch in s if ord(ch) >= 32)  # icon-font codes (accessibility symbols etc.) can't be drawn as text
 
 
+# Part-time services (the Z, the 7 express, …) are drawn on the paper map with a tiling pattern: thin diagonal stripes
+# in the route's color over a white line. The stripes are about 0.8 map units wide and 1.7 apart (backslash direction:
+# matplotlib draws 6 hatch lines per inch per backslash, and one map unit is one point when exporting).
+HATCH = "\\" * 5
+HATCH_WIDTH = 0.8
+HATCH_WASH = 0.35  # opacity of the route color under the stripes, on the dark map
+
+
+def pattern_of(p):
+    """The route color of a patterned (hatched) stroke or fill, or None."""
+    return p.get("stroke_pattern") or p.get("fill_pattern")
+
+
+def to_path(geometry):
+    """A shapely (multi)polygon as a matplotlib path, holes included."""
+    verts, codes = [], []
+    for poly in getattr(geometry, "geoms", [geometry]):
+        for ring in [poly.exterior, *poly.interiors]:
+            pts = list(ring.coords)
+            verts += pts
+            codes += [Path.MOVETO] + [Path.LINETO] * (len(pts) - 2) + [Path.CLOSEPOLY]
+    return Path(verts, codes)
+
+
+def hatched(ax, p, lw_scale, zorder, theme):
+    """Draws a patterned stroke or fill as diagonal stripes in its route color, like the paper map's pattern. On the
+    dark map a faint wash of the color goes under the stripes (on paper the gaps are white, which reads as a lighter
+    version of the color; black gaps alone would read as railroad ties)."""
+    path = to_mpl_path(p["segs"])
+    color = pattern_of(p)
+    if p.get("stroke_pattern"):
+        lines = [LineString(v) for v in path.to_polygons(closed_only=False) if len(v) > 1]
+        area = unary_union([line.buffer(p["lw"] / 2, cap_style=2, join_style=1) for line in lines])
+    else:
+        area = unary_union([Polygon(v).buffer(0) for v in path.to_polygons() if len(v) > 2])
+    if area.is_empty:
+        return
+    matplotlib.rcParams["hatch.linewidth"] = HATCH_WIDTH * lw_scale  # read when the figure is drawn
+    outline = to_path(area)
+    if theme == "dark":  # separate from the stripes: in a PDF the hatch takes the patch's opacity
+        ax.add_patch(PathPatch(outline, facecolor=(*color, HATCH_WASH), edgecolor="none", lw=0, zorder=zorder))
+    ax.add_patch(PathPatch(outline, facecolor="none", edgecolor=color, lw=0, hatch=HATCH, zorder=zorder))
+
+
 def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0, theme="dark"):
     """Draw the map onto a matplotlib axis in page coordinates: black background (theme "dark") or the paper
     map's colors ("light")."""
     path_style, text_style = (style_path_light, style_text_light) if theme == "light" else (style_path, style_text)
     n = 0
     for p in drawing["paths"]:
+        if pattern_of(p) and not cropped(p["lo"], p["hi"]):
+            hatched(ax, p, lw_scale, zorder + n * 1e-6, theme)  # a part-time service's hatched line, as on paper
+            n += 1
+            continue
         st = path_style(p, bullets)
         if st is None:
             continue

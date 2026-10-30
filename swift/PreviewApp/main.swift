@@ -65,6 +65,104 @@ func commandLineTrips(network: SubwayNetwork) -> (trips: [Trip], now: Double)? {
     return nil
 }
 
+if arguments.contains("--visibility-audit") {
+    // Every hop of every route (or one route: --route R): walks the glide's path a map unit at a time and compares
+    // where the app hides the train with where the map draws another line on top of it (Locator.visibilityCheck).
+    // --png FILE marks the disagreements on the map: red = hidden but shouldn't be, cyan = shown but should be hidden.
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let only = value(after: "--route")
+    let name = { (id: String) in hooks.network.stations[id]?.name ?? id }
+    var perRoute: [String: (units: Int, falseHide: Int, missedHide: Int)] = [:]
+    var worst: [(units: Int, text: String)] = []
+    // Trains a day making each hop (from the stop patterns), so the list ranks what is actually seen on screen.
+    var daily: [String: Int] = [:]
+    for pattern in hooks.network.patterns {
+        var stations: [String] = []
+        for platform in pattern.stops {
+            if let s = hooks.locator.stationOf(platform), stations.last != s { stations.append(s) }
+        }
+        for (a, b) in zip(stations, stations.dropFirst()) { daily["\(pattern.route)|\(a)|\(b)", default: 0] += pattern.trips }
+    }
+    var marks: [(point: CGPoint, falseHide: Bool)] = []
+    for (key, points) in (hooks.network.hopPaths ?? [:]).sorted(by: { $0.key < $1.key }) {
+        let parts = key.split(separator: "|").map(String.init)
+        if let only, parts[0] != only { continue }
+        let check = hooks.locator.visibilityCheck(route: parts[0], path: points.map(CGPoint.init))
+        let falseHides = check.filter { $0.actual && !$0.expected }, missed = check.filter { !$0.actual && $0.expected }
+        var t = perRoute[parts[0], default: (0, 0, 0)]
+        t.units += check.count
+        t.falseHide += falseHides.count
+        t.missedHide += missed.count
+        perRoute[parts[0]] = t
+        marks += falseHides.map { ($0.point, true) } + missed.map { ($0.point, false) }
+        let trips = daily[key] ?? 0
+        if falseHides.count + missed.count >= 3, trips > 0 {
+            let at = (falseHides + missed)[0].point
+            worst.append(((falseHides.count + missed.count) * trips,
+                          String(format: "%@ %@ → %@ (%d trains a day): hidden wrongly %d, shown wrongly %d units, near (%.0f, %.0f)",
+                                 parts[0], name(parts[1]), name(parts[2]), trips, falseHides.count, missed.count, at.x, at.y)))
+        }
+    }
+    print("route  units checked  hidden wrongly  shown wrongly")
+    for (route, t) in perRoute.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
+        print(String(format: "%-5@ %13d %15d %14d", route, t.units, t.falseHide, t.missedHide))
+    }
+    print("\(worst.count) scheduled hops with 3+ units wrong (most-run first, by trains a day × units wrong):")
+    for w in worst.sorted(by: { $0.units > $1.units }) { print("  " + w.text) }
+    if let json = value(after: "--json") {  // every disagreement: [x, y, 1 = hidden wrongly / 0 = shown wrongly]
+        let rows = marks.map { [Double($0.point.x), Double($0.point.y), $0.falseHide ? 1 : 0] }
+        try JSONSerialization.data(withJSONObject: rows).write(to: URL(fileURLWithPath: json))
+    }
+    if let png = value(after: "--png") {
+        let size = 1656, height = 1978, scale = 1
+        let ctx = CGContext(data: nil, width: size * scale, height: height * scale, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        if let url = SubwayView.resources.url(forResource: "map_black", withExtension: "pdf"), let doc = MapDocument(url: url),
+           let image = doc.renderImage(mapRect: doc.bounds, pixelSize: CGSize(width: size, height: height)) {
+            ctx.setAlpha(0.45); ctx.draw(image, in: CGRect(x: 0, y: 0, width: size, height: height)); ctx.setAlpha(1)
+        }
+        for mark in marks {
+            ctx.setFillColor(mark.falseHide ? CGColor(red: 1, green: 0.2, blue: 0.2, alpha: 1) : CGColor(red: 0, green: 0.9, blue: 1, alpha: 1))
+            ctx.fillEllipse(in: CGRect(x: mark.point.x - 2.5, y: mark.point.y - 2.5, width: 5, height: 5))
+        }
+        try NSBitmapImageRep(cgImage: ctx.makeImage()!).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: png))
+        print("wrote \(png)")
+    }
+    exit(0)
+}
+
+if arguments.contains("--overpass-audit") {
+    // Every hop of every route on the map: the lines its glide passes under, split into crossings (the path enters a
+    // line's band on one side and leaves on the other) and grazes (it only runs alongside, inside the band's edge).
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let name = { (id: String) in hooks.network.stations[id]?.name ?? id }
+    var perRoute: [String: (hops: Int, crossings: Int, grazes: Int)] = [:]
+    var grazes: [(route: String, text: String)] = []
+    for (key, points) in (hooks.network.hopPaths ?? [:]).sorted(by: { $0.key < $1.key }) {
+        let parts = key.split(separator: "|").map(String.init)
+        let path = points.map(CGPoint.init)
+        let hits = hooks.locator.overpassHits(path: path)
+        let kept = hooks.locator.overpasses(path: path).count  // the bands the app actually hides the dot under
+        var tally = perRoute[parts[0], default: (0, 0, 0)]
+        tally.hops += 1
+        tally.crossings += kept
+        tally.grazes += hits.count - kept
+        perRoute[parts[0]] = tally
+        for hit in hits where !hit.passesUnder
+            && !hits.contains(where: { $0.crosses && $0.color == hit.color && hypot($0.at.x - hit.at.x, $0.at.y - hit.at.y) < 20 }) {
+            grazes.append((parts[0], String(format: "%@ %@ → %@: alongside %@ near (%.0f, %.0f)", parts[0], name(parts[1]),
+                                            name(parts[2]), hit.color, hit.at.x, hit.at.y)))
+        }
+    }
+    print("route  hops  passes under  ignored (only alongside)")
+    for (route, t) in perRoute.sorted(by: { $0.key.localizedStandardCompare($1.key) == .orderedAscending }) {
+        print(String(format: "%-5@ %5d %10d %7d", route, t.hops, t.crossings, t.grazes))
+    }
+    print("\(grazes.count) ignored: lines the train only runs alongside (before this check they hid the train):")
+    for g in grazes { print("  " + g.text) }
+    exit(0)
+}
+
 if let i = arguments.firstIndex(of: "--overpasses"), i + 3 < arguments.count {
     // How many upper lines' bands a hop passes under: --overpasses ROUTE FROM_STATION TO_STATION (e.g. 1 125 126).
     guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
@@ -74,6 +172,10 @@ if let i = arguments.firstIndex(of: "--overpasses"), i + 3 < arguments.count {
     let name = { (id: String) in hooks.network.stations[id]?.name ?? id }
     print("\(route) \(name(a)) → \(name(b)): track \(followed ? "followed" : "straight"), passes under \(bands.count) band(s)")
     for band in bands { print("  band around (\(Int(band.boundingBox.midX)), \(Int(band.boundingBox.midY)))") }
+    for hit in hooks.locator.overpassHits(path: line.points) {
+        print(String(format: "  runs into %@ at (%.0f, %.0f): %@, own line %@", hit.color, hit.at.x, hit.at.y,
+                     hit.crosses ? "crosses it" : "only alongside", hit.ownLineDrawn ? "drawn" : (hit.atStation ? "not reached (at a station)" : "missing")))
+    }
     exit(0)
 }
 

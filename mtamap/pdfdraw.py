@@ -68,8 +68,8 @@ class Interpreter:
 
     # ---- resources ----
     def resources(self, dict_bytes):
-        res = {"xobj": {}, "cs": {}}
-        for key, target in [("XObject", "xobj"), ("ColorSpace", "cs")]:
+        res = {"xobj": {}, "cs": {}, "pat": {}}
+        for key, target in [("XObject", "xobj"), ("ColorSpace", "cs"), ("Pattern", "pat")]:
             m = re.search(rb"/" + key.encode() + rb"\s*<<(.*?)>>", dict_bytes, re.S)
             if m:
                 for nm, num in re.findall(rb"/(\w+)\s+(\d+)\s+0\s+R", m.group(1)):
@@ -98,6 +98,21 @@ class Interpreter:
             c, m, y, k = comps
             return ((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k))
         return (0, 0, 0)
+
+    def pattern_color(self, num):
+        """The color a tiling pattern paints (the map's patterns are diagonal stripes in one route color: the hatched
+        lines of part-time services such as the Z and the 7 express), or None."""
+        m = re.search(rb"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+scn", self.pdf.stream(num))
+        return (float(m.group(1)), float(m.group(2)), float(m.group(3))) if m else None
+
+    def paint(self, cs_num, operands, res):
+        """The color an sc/scn (or SC/SCN) operator sets, and the color of the pattern it selects instead, if any. A
+        pattern leaves the color None (as the station matching expects); its color goes in the path's
+        "fill_pattern" / "stroke_pattern", for drawing only."""
+        color = self.color_of(cs_num, [x for x in operands if isinstance(x, float)])
+        name = operands[-1].lstrip("/") if operands and isinstance(operands[-1], str) else None
+        pattern = self.pattern_color(res["pat"][name]) if color is None and name in res["pat"] else None
+        return color, pattern
 
     # ---- main loop ----
     def run(self, data, res, ctm, tag="page"):
@@ -154,11 +169,9 @@ class Interpreter:
             elif op == "CS":
                 gs["scs"] = res["cs"].get(o[-1].lstrip("/"))
             elif op in ("sc", "scn"):
-                nums = [x for x in o if isinstance(x, float)]
-                gs["fill"] = self.color_of(gs["fcs"], nums)
+                gs["fill"], gs["fill_pattern"] = self.paint(gs["fcs"], o, res)
             elif op in ("SC", "SCN"):
-                nums = [x for x in o if isinstance(x, float)]
-                gs["stroke"] = self.color_of(gs["scs"], nums)
+                gs["stroke"], gs["stroke_pattern"] = self.paint(gs["scs"], o, res)
             elif op == "g":
                 gs["fill"], gs["fcs"] = (o[-1],) * 3, None
             elif op == "G":
@@ -208,8 +221,11 @@ class Interpreter:
                     dash = None
                     if gs["dash"] and stroke is not None:
                         dash = ([x * scale for x in gs["dash"][0]], gs["dash"][1] * scale)
+                    painted = {"fill_pattern": op in ("f", "F", "f*", "B", "B*", "b", "b*") and gs.get("fill_pattern"),
+                               "stroke_pattern": op in ("S", "s", "B", "B*", "b", "b*") and gs.get("stroke_pattern")}
                     self.paths.append({"segs": path, "fill": fill, "stroke": stroke, "lw": gs["lw"] * scale,
-                                       "evenodd": op.endswith("*"), "tag": tag, "dash": dash, "cap": gs["cap"]})
+                                       "evenodd": op.endswith("*"), "tag": tag, "dash": dash, "cap": gs["cap"],
+                                       **{k: v for k, v in painted.items() if v}})
                 path = []
             elif op in ("W", "W*"):
                 pass
@@ -225,6 +241,8 @@ class Interpreter:
                         # a form without its own color spaces uses its parent's
                         for k, v in res["cs"].items():
                             sub_res["cs"].setdefault(k, v)
+                        for k, v in res["pat"].items():
+                            sub_res["pat"].setdefault(k, v)
                         self.run(self.pdf.stream(num), sub_res, mat_mul(mtx, gs["ctm"]), tag=f"form{num}")
             # ---- text ----
             elif op == "BT":

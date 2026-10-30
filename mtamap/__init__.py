@@ -97,6 +97,10 @@ class OfficialMap:
             return None
         members = self.clusters[k]["members"]
         own = [i for i in members if route in self.circle_routes(i)]
+        if not own and len(route) == 2 and route.endswith("X"):
+            # An express variant (6X, 7X, FX) with no diamond of its own here stands with its base route (the 6X on the
+            # 6's circle), not on the first circle of its line's color (which may be another route's: the 4's, the B's).
+            own = [i for i in members if route[0] in self.circle_routes(i)]
         if not own:
             own = [i for i in members if self.COLOR.get(route) in self.circles[i]["lines"]]
         if own:

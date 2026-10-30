@@ -60,7 +60,7 @@ final class Locator {
             let xs = points.map(\.x), ys = points.map(\.y)
             let box = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0, width: (xs.max() ?? 0) - (xs.min() ?? 0),
                              height: (ys.max() ?? 0) - (ys.min() ?? 0))
-            return (stroke.order, CGFloat(stroke.halfWidth), points, box)
+            return (stroke.order, CGFloat(stroke.halfWidth), points, box, stroke.color)
         }
         for p in network.patterns {
             var index: [String: Int] = [:], last: [String: Int] = [:]
@@ -311,7 +311,26 @@ final class Locator {
     }
 
     /// Each route line as the map draws it (SubwayNetwork.Stroke), with its bounding box for quick rejection.
-    private let strokes: [(order: Int, half: CGFloat, points: [CGPoint], box: CGRect)]
+    private let strokes: [(order: Int, half: CGFloat, points: [CGPoint], box: CGRect, color: String)]
+
+    /// One line a glide's path runs into: the band to hide the dot under, whether the path crosses the line (enters its
+    /// band on one side and leaves on the other) or only runs alongside it, whether the train's own line is drawn there
+    /// (the map leaves a gap in some lines where they pass under), the line's color and where.
+    struct OverpassHit {
+        let band: CGPath
+        let crosses: Bool
+        let ownLineDrawn: Bool
+        /// The run touches the start or end of the path, where the train is still leaving or reaching its station's
+        /// circle (which sits a little off the line): there "own line missing" says nothing.
+        let atStation: Bool
+        let color: String
+        let at: CGPoint
+
+        /// The train passes under this line: it crosses it, or its own line has a gap here (so it can't be on top). A
+        /// line it only runs alongside, on its own line drawn the whole way (the 4 beside the 5's green line in
+        /// Brooklyn), doesn't pass over it.
+        var passesUnder: Bool { crosses || (!ownLineDrawn && !atStation) }
+    }
 
     /// Where a glide's path passes under another line (an overpass on the map, such as the A/C/E and B/D/F/M over the
     /// 1/2/3 at Columbus Circle), as the outlines of the upper lines' bands in map units: the stretch of the upper line
@@ -320,7 +339,21 @@ final class Locator {
     /// Where the path crosses another line's stroke, the train is under it if its own line there is drawn earlier, or
     /// isn't drawn at all: the map draws some lines continuously and overdraws them (the 2/3 at Columbus Circle), and
     /// leaves a gap in others where they pass under (the 1 there), which the track network bridges.
+    ///
+    /// Only lines the train actually passes under count (OverpassHit.passesUnder): one it merely runs alongside, inside
+    /// the edge of its band, doesn't hide it. A line drawn in pieces that meet where the train crosses it (the orange B/D
+    /// lines the 2/3 express pass under at Columbus Circle) is crossed at one piece and only brushed at the next, as the
+    /// path slips out through the joint: a brushed line counts when the same line is crossed within 20 map units.
     func overpasses(path: [CGPoint]) -> [CGPath] {
+        let hits = overpassHits(path: path)
+        return hits.filter { hit in
+            hit.passesUnder
+                || hits.contains { $0.crosses && $0.color == hit.color && hypot($0.at.x - hit.at.x, $0.at.y - hit.at.y) < 20 }
+        }.map(\.band)
+    }
+
+    /// Every line whose band the path runs into and isn't its own or drawn under it (see `overpasses`).
+    func overpassHits(path: [CGPoint]) -> [OverpassHit] {
         guard path.count > 1 else { return [] }
         let line = Polyline(path)
         guard line.length > 0 else { return [] }
@@ -329,7 +362,7 @@ final class Locator {
         // Points along the path, one per map unit.
         let count = Int(line.length) + 1
         let samples = (0...count).map { line.point(at: CGFloat($0) * line.length / CGFloat(count)) }
-        var bands: [CGPath] = []
+        var hits: [OverpassHit] = []
         for s in strokes where s.points.count > 1 && s.box.insetBy(dx: -s.half, dy: -s.half).intersects(box) {
             // Runs of the path inside this line's band (within its half-width, casing included). Testing the band
             // rather than the center line also catches a line drawn in two pieces that meet where the path crosses
@@ -349,17 +382,61 @@ final class Locator {
                 // only brushed in passing doesn't count, even where it points the same way (the orange B/D curve,
                 // which the 1 passes under at the point where the curve runs diagonally, like the 1).
                 if (runStart...end).filter({ near[$0].distance < 1.5 }).count >= 8 { continue }
-                // The train's own line at the crossing: another stroke running along the path through this point.
+                // The train's own line at the crossing: the strokes running along the path through this point. A line
+                // can be drawn in several overlapping pieces (the red 2/3 at Borough Hall), so the topmost one counts.
                 let at = samples[mid]
-                let own = strokes.first { o in
+                let own = strokes.filter { o in
                     o.order != s.order && o.box.insetBy(dx: -2, dy: -2).contains(at)
                         && Locator.runsAlong(o.points, at: at, direction: direction)
-                }
+                }.max { $0.order < $1.order }
                 if let own, own.order > s.order { continue }  // drawn later: the train is on top
-                bands.append(Locator.band(s.points, from: segment, around: near[mid].point, half: s.half))
+                // Crossing: just before the run and just after it, the path is on opposite sides of the line.
+                func side(_ i: Int) -> CGFloat {
+                    let a = s.points[near[i].segment], b = s.points[near[i].segment + 1], p = samples[i]
+                    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+                }
+                // (A path that starts or ends inside the band, at a station under the line, uses its first or last
+                // point there instead: Eastern Pkwy, under the Q, where the 4 sets off.)
+                let before = max(runStart - 1, 0), after = min(end + 1, samples.count - 1)
+                let crosses = before < after && side(before) * side(after) < 0
+                hits.append(OverpassHit(band: Locator.band(s.points, from: segment, around: near[mid].point, half: s.half),
+                                        crosses: crosses, ownLineDrawn: own != nil,
+                                        atStation: runStart == 0 || end == samples.count - 1, color: s.color, at: at))
             }
         }
-        return bands
+        return hits
+    }
+
+    /// For checking (`--visibility-audit`): walks a glide's path one map unit at a time and says at each point whether
+    /// the train should be hidden, judged straight from the map's drawing order, and whether `overpasses` hides it.
+    /// Expected: another line is drawn on top here (the point is well inside its band, not just at the edge) and the
+    /// track the train is on (any line right under the point, running the same way: its own, or the one a rerouted train
+    /// borrows) is drawn earlier or missing. Points within 6 map units of either end are left out: there the train is
+    /// still at a station's circle, off the line.
+    func visibilityCheck(route: String, path: [CGPoint]) -> [(point: CGPoint, expected: Bool, actual: Bool)] {
+        guard path.count > 1 else { return [] }
+        let line = Polyline(path)
+        guard line.length > 12 else { return [] }
+        let bands = overpasses(path: path)
+        let xs = path.map(\.x), ys = path.map(\.y)
+        let box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!).insetBy(dx: -8, dy: -8)
+        let nearby = strokes.filter { $0.box.insetBy(dx: -$0.half, dy: -$0.half).intersects(box) }
+        var out: [(point: CGPoint, expected: Bool, actual: Bool)] = []
+        var along: CGFloat = 6
+        while along <= line.length - 6 {
+            let p = line.point(at: along)
+            let direction = line.point(at: min(along + 1, line.length)) - line.point(at: max(along - 1, 0))
+            let distances = nearby.map { Locator.nearest(on: $0.points, to: p).distance }
+            let own = nearby.indices.filter { distances[$0] < 2 && Locator.runsAlong(nearby[$0].points, at: p, direction: direction) }
+            let ownOrder = own.map { nearby[$0].order }.max()
+            let above = nearby.indices.filter { k in !own.contains(k) && (ownOrder.map { nearby[k].order > $0 } ?? true) }
+            let covered = above.contains { distances[$0] < nearby[$0].half - 1.5 }
+            // At the very edge of a line's band (within 1.5 units of it) a dot is partly under it either way: skip.
+            let edge = above.contains { abs(distances[$0] - nearby[$0].half) < 1.5 }
+            if !edge { out.append((p, covered, bands.contains { $0.contains(p) })) }
+            along += 1
+        }
+        return out
     }
 
     /// The nearest point of a polyline to `point`: its distance, the point, and the segment it lies on.
