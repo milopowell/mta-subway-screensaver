@@ -112,28 +112,42 @@ class OfficialMap:
             own = [i for i in members if route[0] in self.circle_routes(i)]
         return self.circles[own[0]]["center"] if own else None
 
+    def anchor(self, route, station, toward):
+        """Where a `route` train stands at `station` on its hop to or from the neighboring station `toward`: its own
+        circle, or else the circle of a line that makes the same hop (whose track it borrows, like the late-night N on the
+        R's at Jay St-MetroTech), or None."""
+        own = self.own_circle(route, station)
+        if own is not None:
+            return own
+        for other in self.routes_between.get((station, toward), []) + self.routes_between.get((toward, station), []):
+            if other != route and (point := self.own_circle(other, station)) is not None:
+                return point
+        return None
+
     def through_point(self, route, station):
         """For a route that stops at `station` but has no circle there (the Q at 49 St, where it stops only at night,
         on its own express track): the point beside the station on the track it runs on between its stops before and
-        after (those with circles of their own, busiest pair first), if that track passes within 25 map units of the
-        station. Otherwise None."""
+        after (busiest pair first; see `anchor` for where it stands at those), if that track passes within 25 map units of
+        the station. Otherwise None."""
         key = (route, station)
         if key not in self._through:
             self._through[key] = None
             k = self.assigned.get(station)
             center = np.asarray(self.clusters[k]["center"]) if k is not None else None
             for before, after in self.neighbors.get(key, []) if center is not None else []:
-                pa, pb = self.own_circle(route, before), self.own_circle(route, after)
+                pa, pb = self.anchor(route, before, station), self.anchor(route, after, station)
                 if pa is None or pb is None:
                     continue
                 track, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(route), []))
                 if followed and track.distance(Point(center)) <= 25:
                     q = track.interpolate(track.project(Point(center)))
                     point = (q.x, q.y)
-                    # A circle with the route's letter right there (one the matching put in a group of its own, like
-                    # the R's at DeKalb Av) is where it stops.
-                    near = [c["center"] for c in self.circles if route in self.glyph_route.get(c["glyph"], ())
-                            and np.linalg.norm(np.asarray(c["center"]) - point) <= 8]
+                    # A circle on this very track close by is where it stops: its own letter's (the R's at DeKalb Av,
+                    # which the matching put in a group of its own), or the circle of the line whose track it shares
+                    # (the late-night N there, on the R's track). A circle on a neighboring line (the C's, beside the
+                    # late-night A at 50 St) is not on the track, so it doesn't count.
+                    near = [c["center"] for c in self.circles
+                            if track.distance(Point(c["center"])) <= 3 and np.linalg.norm(np.asarray(c["center"]) - point) <= 15]
                     if near:
                         point = tuple(min(near, key=lambda c: np.linalg.norm(np.asarray(c) - point)))
                     self._through[key] = point
