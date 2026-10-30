@@ -91,7 +91,16 @@ final class MapPanel {
 
     /// Carries out MotionPlanner's commands for this panel (`animated: false` for snapshots).
     func apply(_ commands: [TrainCommand], animated: Bool = true) {
-        trains.apply(commands, toView: toView, dot: dotDiameter, animated: animated)
+        trains.apply(commands, toView: toView, dot: dotDiameter, circle: stationCircleUnits * pointsPerUnit, animated: animated)
+    }
+
+    /// A station circle's diameter on the map, in map units (a waiting train's bullet covers it).
+    var stationCircleUnits: CGFloat = 8.2
+
+    /// route → (bullet color, letter color), for trains waiting at stations (shown as their route's bullet).
+    var routeColors: [String: (NSColor, NSColor)] {
+        get { trains.routeColors }
+        set { trains.routeColors = newValue }
     }
 
     /// Removes every train dot (before replaying the planner's state after a resize).
@@ -125,6 +134,7 @@ final class MapPanel {
         mapLayer.contents = image
         CATransaction.commit()
         renderedFor = (size, scale, mapRect)
+        trains.scale = scale  // bullet images drawn at the screen's resolution
         NSLog("MapPanel: rendered %.0f×%.0f px in %.0f ms", size.width * scale, size.height * scale,
               (CFAbsoluteTimeGetCurrent() - start) * 1000)
     }

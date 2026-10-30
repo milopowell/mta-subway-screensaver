@@ -72,6 +72,7 @@ final class SandboxView: NSView {
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.addSublayer(panel.root)
         panel.overpasses = { [weak locator = self.locator] path in locator?.overpasses(path: path) ?? [] }
+        panel.routeColors = colors  // trains waiting at stations show their route's bullet
         buildSidebar()
     }
 

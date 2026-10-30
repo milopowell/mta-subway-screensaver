@@ -10,8 +10,9 @@ enum TrainLook {
 
 /// What a train's dot should do, as decided by MotionPlanner. Positions and paths are in map units.
 enum TrainCommand {
-    /// Stand still at `point` (a station, or a parked position).
-    case place(key: String, point: CGPoint, look: TrainLook)
+    /// Stand still at `point` (a station, or a parked position). `route`: the train's route, so a train standing at a
+    /// station can light up that route's bullet there.
+    case place(key: String, point: CGPoint, look: TrainLook, route: String? = nil)
     /// Glide along `path` (the track, from where the train is now to the next station) for `duration`
     /// seconds: one continuous animation that speeds up out of the station and slows into the next.
     case travel(key: String, path: [CGPoint], duration: Double)
@@ -78,7 +79,7 @@ final class MotionPlanner {
     var glideLog: [Glide]?
 
     private enum Phase {
-        case stopped(station: String?, point: CGPoint, look: TrainLook)
+        case stopped(station: String?, point: CGPoint, look: TrainLook, route: String?)
         case traveling(leg: Locator.Leg, start: Double, duration: Double, path: [CGPoint])
     }
     private var phases: [String: Phase] = [:]
@@ -119,14 +120,14 @@ final class MotionPlanner {
             guard base.kind != .parked, let legs = locator.legs(for: trip, now: now) else {
                 // Parked, or no timeline: stand where the notebook places it (a move waits for its turn).
                 let look: TrainLook = base.kind == .parked ? .parked : .stopped
-                commands += stop(key, station: nil, point: basePoint, look: look, now: now)
+                commands += stop(key, station: nil, point: basePoint, look: look, now: now, route: trip.routeID)
                 continue
             }
             // The hop the predictions say the train is on (or about to start); nil = past its last prediction.
             guard let current = legs.first(where: { now <= $0.arrive }) else {
                 let last = legs[legs.count - 1]
                 commands += stop(key, station: last.to, point: locator.standPoint(route: last.route, station: last.to, from: last.from),
-                                 look: .stopped, now: now)
+                                 look: .stopped, now: now, route: last.route)
                 continue
             }
             commands += advance(key, legs: legs, current: current, now: now)
@@ -148,7 +149,8 @@ final class MotionPlanner {
         case nil:
             // First time we see this train: start it in the right place.
             if now < departAt {
-                return stop(key, station: current.from, point: stationPoint(current, at: current.from), look: .stopped, now: now)
+                return stop(key, station: current.from, point: stationPoint(current, at: current.from), look: .stopped, now: now,
+                            route: current.route)
             }
             let done = (now - departAt) / max(current.arrive - departAt, 1e-6)  // fraction of the glide already done
             let line = current.line
@@ -159,11 +161,11 @@ final class MotionPlanner {
         case .traveling(let leg, let start, let duration, _)?:
             if now < start + duration { return [] }  // still gliding: never interrupt a hop
             // Arrived: now stopped at the station; decide what's next in the same tick.
-            phases[key] = .stopped(station: leg.to, point: stationPoint(leg, at: leg.to), look: .stopped)
-            return [.place(key: key, point: stationPoint(leg, at: leg.to), look: .stopped)]
+            phases[key] = .stopped(station: leg.to, point: stationPoint(leg, at: leg.to), look: .stopped, route: leg.route)
+            return [.place(key: key, point: stationPoint(leg, at: leg.to), look: .stopped, route: leg.route)]
                 + advance(key, legs: legs, current: current, now: now)
 
-        case .stopped(var station, let point, _)?:
+        case .stopped(var station, let point, _, let route)?:
             if station == nil {
                 // A parked train (or one that had no timeline) isn't tied to a station yet: recognize the station
                 // from where its dot is, so it simply sets off from there instead of fading out and back in.
@@ -172,7 +174,7 @@ final class MotionPlanner {
                     return hypot(p.x - point.x, p.y - point.y) < 3
                 }
                 station = legs.first(where: { near($0.from, $0) })?.from ?? (near(current.to, current) ? current.to : nil)
-                if let station { phases[key] = .stopped(station: station, point: point, look: .stopped) }
+                if let station { phases[key] = .stopped(station: station, point: point, look: .stopped, route: route) }
             }
             if station == nil {
                 // Still unknown but very close (another circle of the same station): glide straight there. Further
@@ -194,7 +196,8 @@ final class MotionPlanner {
                                        maxTravelSeconds)
                     return travel(key, leg: current, path: current.line.points, duration: duration, now: now)
                 }
-                return stop(key, station: station, point: stationPoint(current, at: current.from), look: .stopped, now: now)
+                return stop(key, station: station, point: stationPoint(current, at: current.from), look: .stopped, now: now,
+                            route: current.route)
             }
             if let station, station == current.to
                 || legs.contains(where: { $0.from == station && $0.arrive > current.arrive }) {
@@ -250,9 +253,10 @@ final class MotionPlanner {
 
     /// Stand still; only emits a command if the position or look actually changes. Moving a standing dot elsewhere
     /// (more than 3 map units) is a correction, so it waits for this train's turn.
-    private func stop(_ key: String, station: String?, point: CGPoint, look: TrainLook, now: Double) -> [TrainCommand] {
+    private func stop(_ key: String, station: String?, point: CGPoint, look: TrainLook, now: Double,
+                      route: String?) -> [TrainCommand] {
         switch phases[key] {
-        case .stopped(_, let p, let l)?:
+        case .stopped(_, let p, let l, _)?:
             let moved = hypot(p.x - point.x, p.y - point.y)
             if l == look, moved < 0.01 { return [] }
             if moved > 3, !correctionDue(key, "move to \(Int(point.x)),\(Int(point.y))", now: now) { return [] }
@@ -264,8 +268,8 @@ final class MotionPlanner {
         case nil:
             break
         }
-        phases[key] = .stopped(station: station, point: point, look: look)
-        return [.place(key: key, point: point, look: look)]
+        phases[key] = .stopped(station: station, point: point, look: look, route: route)
+        return [.place(key: key, point: point, look: look, route: route)]
     }
 
     private func travel(_ key: String, leg: Locator.Leg, path: [CGPoint], duration: Double, now: Double,
@@ -302,8 +306,8 @@ final class MotionPlanner {
     func resync(now: Double) -> [TrainCommand] {
         phases.compactMap { key, phase -> TrainCommand? in
             switch phase {
-            case .stopped(_, let point, let look):
-                return .place(key: key, point: point, look: look)
+            case .stopped(_, let point, let look, let route):
+                return .place(key: key, point: point, look: look, route: route)
             case .traveling(_, let start, let duration, let path):
                 let t = min(max((now - start) / duration, 0), 1)
                 let line = Polyline(path)
