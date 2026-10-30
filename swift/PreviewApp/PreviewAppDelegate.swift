@@ -1,6 +1,6 @@
 import AppKit
 
-/// Opens one window showing SubwayView, sized like your screen, with a minimal menu (Quit; View: layouts,
+/// Opens one window showing SubwayView, sized like your screen, with a minimal menu (About, Quit; View: layouts,
 /// close-up zoom, Full Screen; Appearance; Debug).
 final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     private let startFullScreen: Bool
@@ -98,6 +98,8 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About Subway Preview", action: #selector(NSApplication.showAboutWithBuild(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Subway Preview", action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
         appItem.submenu = appMenu

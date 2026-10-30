@@ -164,6 +164,8 @@ mta-screensaver/
 ├── tools/
 │   ├── gen_xcodeproj.py       regenerates the Xcode project file
 │   ├── make_icons.swift       draws the app icons (preview app and sandbox)
+│   ├── install_apps.sh        builds the preview app and the sandbox and installs them in ~/Applications
+│   ├── install_saver.sh       builds the screensaver and installs it in ~/Library/Screen Savers
 │   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
 │   └── gtfs-realtime.desc     feed schema, for regenerating the Swift feed decoder
 └── archive/                   earlier versions of the notebook
@@ -217,7 +219,7 @@ zsh tools/install_saver.sh
 
 4. Choose **Subway** in System Settings > Screen Saver; **Options…** sets the stations, magnification and appearance.
 
-The preview app and the sandbox are optional; their build commands are below and in `swift/README.md`. Homebrew and the protobuf tools are only needed to regenerate the feed decoder. The schedule in the export expires (currently on 15 May 2027): after that, repeat steps 2 and 3.
+The preview app and the sandbox are optional; `zsh tools/install_apps.sh` installs both in `~/Applications` (see below). Homebrew and the protobuf tools are only needed to regenerate the feed decoder. The schedule in the export expires (currently on 15 May 2027): after that, repeat steps 2 and 3.
 
 ### The notebook
 
@@ -229,9 +231,26 @@ To run it non-interactively:
 ~/anaconda3/bin/jupyter nbconvert --to notebook --execute --inplace ~/mta-screensaver/subway_pipeline.ipynb
 ```
 
+### Installing the preview app and the sandbox
+
+```bash
+zsh ~/mta-screensaver/tools/install_apps.sh
+```
+
+This builds both apps and installs them in `~/Applications` (your own Applications folder, no password needed), replacing earlier copies. From there Spotlight, Launchpad and the Dock find them like any other app: search "Subway Preview" or "Subway Sandbox", and to keep one in the Dock, right-click its icon and choose Options > Keep in Dock.
+
+The installed copies don't change by themselves: committing, pulling or rebuilding leaves them as they were until the script runs again. So run it after any change you want to use, and after refreshing the schedule (the maps and network data are copied into each app when it's built). Your settings carry over, since macOS keeps them by the app's identity rather than its location, and a Dock icon keeps working because the new copy goes in the same place.
+
+Two things keep it clear which version you're running:
+
+- **A version stamp.** Each installed copy records the commit it was built from and the date; its About window (in the app menu) shows it, e.g. "Commit ba4aa83, 29 Oct 2026", with "plus uncommitted changes" when the code differed from that commit. A copy started from Xcode or the build folder says "Development build". To go back to an earlier version, check out that commit and run the script.
+- **One copy that counts.** Every build also leaves a copy in `swift/build/`. The script hides that folder from Spotlight and registers the installed copies with macOS as the ones to open, so searching "Subway" finds only them.
+
+The screensaver has its own script, `tools/install_saver.sh` (see "The screensaver" below).
+
 ### The preview app
 
-Build with the scheme (a target build skips the SwiftProtobuf package), then open the app:
+To build it without installing (for development), use the scheme (a target build skips the SwiftProtobuf package), then open it:
 
 ```bash
 cd ~/mta-screensaver/swift && xcodebuild -project SubwaySaver.xcodeproj -scheme SubwayPreview -configuration Release -destination 'platform=macOS' -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages build

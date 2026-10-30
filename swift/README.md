@@ -97,7 +97,7 @@ open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwaySand
 
 ## Installing the screensaver
 
-`zsh ../tools/install_saver.sh` builds and installs it in `~/Library/Screen Savers`; `../tools/test_saver.swift` tests the built bundle without installing it (see the main README).
+`zsh ../tools/install_saver.sh` builds and installs it in `~/Library/Screen Savers` (and `zsh ../tools/install_apps.sh` installs the preview app and the sandbox in `~/Applications`, stamped with the commit they were built from: `Shared/BuildInfo.swift` shows it in their About windows); `../tools/test_saver.swift` tests the built bundle without installing it (see the main README).
 
 ## Regenerating the feed decoder
 

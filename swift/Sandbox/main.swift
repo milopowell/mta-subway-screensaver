@@ -3,7 +3,7 @@ import AppKit
 // Entry point of the sandbox: a separate app for sending trains by hand and trying out new features, with no live
 // data. It shares the drawing and motion code (Shared/) with the preview app and the screensaver, but no settings.
 
-/// Opens one window with SandboxView, and a menu with Quit.
+/// Opens one window with SandboxView, and a menu with About and Quit.
 final class SandboxAppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
 
@@ -31,6 +31,8 @@ final class SandboxAppDelegate: NSObject, NSApplicationDelegate {
         self.window = window
 
         let main = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About Subway Sandbox", action: #selector(NSApplication.showAboutWithBuild(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Subway Sandbox", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
