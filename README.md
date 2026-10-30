@@ -376,7 +376,7 @@ These are the issues most likely to affect how smoothly the app runs, roughly in
 
 ## Version control
 
-The project is a private GitHub repository. It holds code only: the MTA's files (schedule, map, station list), the notebook's export and every image of the map are left out (see `.gitignore`), and notebooks are committed without their outputs. After cloning:
+The project is a public GitHub repository (github.com/milopowell/mta-subway-screensaver). It holds code only: the MTA's files (schedule, map, station list), the notebook's export and every image of the map are left out (see `.gitignore`), and notebooks are committed without their outputs. After cloning:
 
 1. Set up the notebook filter once (it strips outputs when committing; your local notebooks keep theirs):
    ```bash

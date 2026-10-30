@@ -125,7 +125,7 @@ final class MotionPlanner {
             // The hop the predictions say the train is on (or about to start); nil = past its last prediction.
             guard let current = legs.first(where: { now <= $0.arrive }) else {
                 let last = legs[legs.count - 1]
-                commands += stop(key, station: last.to, point: locator.stationPoint(route: last.route, station: last.to),
+                commands += stop(key, station: last.to, point: locator.standPoint(route: last.route, station: last.to, from: last.from),
                                  look: .stopped, now: now)
                 continue
             }
@@ -243,7 +243,9 @@ final class MotionPlanner {
     }
 
     private func stationPoint(_ leg: Locator.Leg, at station: String) -> CGPoint {
-        locator.stationPoint(route: leg.route, station: station)
+        // A rerouted train stands on the circle of a line making the same hop (Locator.standPoint).
+        locator.standPoint(route: leg.route, station: station, from: station == leg.to && leg.from != leg.to ? leg.from : nil,
+                           to: station == leg.from && leg.from != leg.to ? leg.to : nil)
     }
 
     /// Stand still; only emits a command if the position or look actually changes. Moving a standing dot elsewhere

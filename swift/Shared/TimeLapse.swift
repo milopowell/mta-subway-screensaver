@@ -75,7 +75,9 @@ final class TimeLapse {
                 // Standing at a station (or the latest station recorded).
                 if case .at(let j)? = phases[key], j == i { continue }
                 phases[key] = .at(index: i)
-                commands.append(.place(key: key, point: locator.stationPoint(route: record.route, station: visits[i].station),
+                commands.append(.place(key: key, point: locator.standPoint(route: record.route, station: visits[i].station,
+                                                                           from: i > 0 ? visits[i - 1].station : nil,
+                                                                           to: next.map { visits[$0].station }),
                                        look: .stopped))
             } else if let n = next {
                 // On the hop from visit i to visit n: one glide to the station, lasting what remains of the real hop.
@@ -102,7 +104,7 @@ final class TimeLapse {
     /// ends exactly at the two station points, where the dot stands before and after (the colored line can pass
     /// a few map units from a station's circle).
     private func hopPath(route: String, from a: String, to b: String) -> Polyline {
-        let start = locator.stationPoint(route: route, station: a), end = locator.stationPoint(route: route, station: b)
+        let start = locator.standPoint(route: route, station: a, to: b), end = locator.standPoint(route: route, station: b, from: a)
         func ending(_ points: [CGPoint]) -> Polyline {
             var points = points
             if let first = points.first, hypot(first.x - start.x, first.y - start.y) > 0.5 { points.insert(start, at: 0) }

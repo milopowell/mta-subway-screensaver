@@ -116,6 +116,27 @@ final class Locator {
         return CGPoint(s.points[route] ?? s.center)
     }
 
+    /// Where a train stands at a station, for motion: the route's circle, as `stationPoint`. A route with no circle
+    /// there (a reroute, such as the E on the F's track through Lexington Av/63 St) takes the circle of a route that
+    /// makes the same hop, arriving `from` or leaving `to` that neighbor, instead of the middle of the station (between
+    /// two lines). Only for drawing: `locate()` keeps the notebook's rule, so the two still match exactly.
+    func standPoint(route: String, station: String, from: String? = nil, to: String? = nil) -> CGPoint {
+        let s = net.stations[station]!
+        if let p = s.points[route] { return CGPoint(p) }
+        let key = "\(route)|\(station)|\(from ?? "")|\(to ?? "")"
+        if let cached = standCache[key] { return cached }
+        // Routes that stop here first (they have a circle of their own), then the rest of the routes drawn here.
+        let others = s.routes.filter { s.points[$0] != nil } + s.points.keys.sorted().filter { !s.routes.contains($0) }
+        let match = others.first { other in
+            (from.map { isPatternHop(route: other, from: $0, to: station) } ?? false)
+                || (to.map { isPatternHop(route: other, from: station, to: $0) } ?? false)
+        }
+        let point = CGPoint(match.flatMap { s.points[$0] } ?? s.center)
+        standCache[key] = point
+        return point
+    }
+    private var standCache: [String: CGPoint] = [:]
+
     /// The track a train follows from station a to b, read like locate_from_export: the path the notebook exported
     /// for this route (`hop_paths`, routed along the joined pieces of its colored line); for a hop that isn't
     /// exported, the stretch of a single piece of the route's line between the two stations; failing that (a train
