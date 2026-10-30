@@ -6,7 +6,7 @@ Metropolitan Transportation Authority". Don't redistribute the map or anything r
 from collections import Counter, defaultdict
 
 import numpy as np
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 
 from . import match as M
 from . import style as S
@@ -73,7 +73,15 @@ class OfficialMap:
                 if x != y:
                     trips_between[(x, y)][p.route_id] += p.n_trips
         self.routes_between = {pair: [r for r, _ in c.most_common()] for pair, c in trips_between.items()}
+        # Each route's stop before and after each station, busiest first (for routes with no circle there).
+        neighbors = defaultdict(Counter)
+        for p in patterns.itertuples():
+            seq = [s for k, s in enumerate(parent_of[x] for x in p.stops) if k == 0 or parent_of[p.stops[k - 1]] != s]
+            for x, here, y in zip(seq, seq[1:], seq[2:]):
+                neighbors[(p.route_id, here)][(x, y)] += p.n_trips
+        self.neighbors = {key: [pair for pair, _ in c.most_common()] for key, c in neighbors.items()}
         self._hop_cache = {}
+        self._through = {}
         self.report = {
             "paths": len(it.paths), "labels": len(it.texts), "station circles": len(self.circles),
             "circle groups": len(self.clusters), "glyphs learned": len(self.glyph_route),
@@ -90,8 +98,9 @@ class OfficialMap:
     def circle_routes(self, i):
         return set(self.glyph_route.get(self.circles[i]["glyph"], ()))
 
-    def station_point(self, route, station):
-        """Where `route`'s circle is drawn at `station` (falls back to the station's center)."""
+    def own_circle(self, route, station):
+        """The center of `route`'s own circle at `station` (its letter, or for an express variant such as the 6X with
+        no diamond there, its base route's), or None."""
         k = self.assigned.get(station)
         if k is None:
             return None
@@ -101,8 +110,52 @@ class OfficialMap:
             # An express variant (6X, 7X, FX) with no diamond of its own here stands with its base route (the 6X on the
             # 6's circle), not on the first circle of its line's color (which may be another route's: the 4's, the B's).
             own = [i for i in members if route[0] in self.circle_routes(i)]
-        if not own:
-            own = [i for i in members if self.COLOR.get(route) in self.circles[i]["lines"]]
+        return self.circles[own[0]]["center"] if own else None
+
+    def through_point(self, route, station):
+        """For a route that stops at `station` but has no circle there (the Q at 49 St, where it stops only at night,
+        on its own express track): the point beside the station on the track it runs on between its stops before and
+        after (those with circles of their own, busiest pair first), if that track passes within 25 map units of the
+        station. Otherwise None."""
+        key = (route, station)
+        if key not in self._through:
+            self._through[key] = None
+            k = self.assigned.get(station)
+            center = np.asarray(self.clusters[k]["center"]) if k is not None else None
+            for before, after in self.neighbors.get(key, []) if center is not None else []:
+                pa, pb = self.own_circle(route, before), self.own_circle(route, after)
+                if pa is None or pb is None:
+                    continue
+                track, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(route), []))
+                if followed and track.distance(Point(center)) <= 25:
+                    q = track.interpolate(track.project(Point(center)))
+                    point = (q.x, q.y)
+                    # A circle with the route's letter right there (one the matching put in a group of its own, like
+                    # the R's at DeKalb Av) is where it stops.
+                    near = [c["center"] for c in self.circles if route in self.glyph_route.get(c["glyph"], ())
+                            and np.linalg.norm(np.asarray(c["center"]) - point) <= 8]
+                    if near:
+                        point = tuple(min(near, key=lambda c: np.linalg.norm(np.asarray(c) - point)))
+                    self._through[key] = point
+                    break
+        return self._through[key]
+
+    def station_point(self, route, station):
+        """Where `route`'s train is drawn at `station`: its own circle; for a route that stops here without a circle,
+        beside the station on its own track (`through_point`); else the circle of a line of its color passing under it
+        (falls back to the station's center)."""
+        k = self.assigned.get(station)
+        if k is None:
+            return None
+        own = self.own_circle(route, station)
+        if own is not None:
+            return own
+        if route in self.served.get(station, ()):
+            through = self.through_point(route, station)
+            if through is not None:
+                return through
+        members = self.clusters[k]["members"]
+        own = [i for i in members if self.COLOR.get(route) in self.circles[i]["lines"]]
         if own:
             return self.circles[own[0]]["center"]
         return self.clusters[k]["center"]
