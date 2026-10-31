@@ -298,11 +298,12 @@ final class TrainLayers {
         let heading = headings[key]
         let cacheKey = "\(route)|\(Int((d * 10).rounded()))|\(scale)|\(theme.isLight)|\(heading.map(String.init) ?? "-")"
         if let image = bulletImages[cacheKey] { return image }
-        let pixels = Int((side * scale).rounded(.up))
+        let density = scale * TrainLayers.breathSwell  // sharp at the top of a breath, too
+        let pixels = Int((side * density).rounded(.up))
         guard pixels > 0, let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
                                               space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.scaleBy(x: scale, y: scale)
+        ctx.scaleBy(x: density, y: density)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
         let ring = max(d * 0.08, 1)
@@ -344,7 +345,7 @@ final class TrainLayers {
         if !morph { CATransaction.setDisableActions(true) }
         size(layer, look, key: key)
         layer.contents = bulletImage(key: key, look: look)  // fades over the morph, from the dot to the bullet and back
-        layer.contentsScale = scale
+        layer.contentsScale = scale * TrainLayers.breathSwell  // the bullet images' pixel density (see bulletImage)
         layer.backgroundColor = color
         layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0
         layer.zPosition = look == .moving ? 2 : (look == .stopped ? 1 : 0)  // moving trains on top
@@ -354,22 +355,34 @@ final class TrainLayers {
 
     // ---- Breathing ----
 
-    /// Seconds for one breath of a waiting train's bullet (dim and back).
+    /// Seconds for one breath of a waiting train's bullet (swell and back).
     private static let breathSeconds: CFTimeInterval = 3.6
+    /// How much a bullet grows at the top of a breath, and how far it fades (to 85%: never very see-through).
+    private static let breathGrowth: CGFloat = 1.07
+    private static let breathFade: Float = 0.15
+    /// Bullet images are drawn this much sharper than the screen needs, so they stay crisp when they swell.
+    private static let breathSwell: CGFloat = 1.1
 
-    /// A waiting train's bullet breathes: it dims a little and comes back, slowly. Kept cheap for the screen: the
-    /// bullet is a finished image, so a breath only changes how strongly it is blended in, never redraws it; the
-    /// animation asks for about 12 frames a second instead of the display's 60 to 120 (a slow breath looks the same);
-    /// and every bullet keeps the same beat, so the map breathes as one. The dimming is added to the layer's own
-    /// opacity, so fading in and out still works on top of it.
+    /// A waiting train's bullet breathes: it swells a little and fades slightly, then settles back, slowly. Kept cheap
+    /// for the screen: the bullet is a finished image, so a breath only scales it and changes how strongly it is
+    /// blended in, never redraws it; the animation asks for about 12 frames a second instead of the display's 60 to
+    /// 120 (a slow breath looks the same); and every bullet keeps the same beat, so the map breathes as one. The fade
+    /// is added to the layer's own opacity, so fading in and out still works on top of it.
     private func breathe(_ layer: CALayer, _ on: Bool) {
         guard on else { layer.removeAnimation(forKey: "breathe"); return }
         guard layer.animation(forKey: "breathe") == nil else { return }
-        let breath = CAKeyframeAnimation(keyPath: "opacity")
-        breath.values = [0, -0.45, 0]
-        breath.keyTimes = [0, 0.5, 1]
-        breath.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-        breath.isAdditive = true
+        let ease = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [0, -TrainLayers.breathFade, 0]
+        fade.isAdditive = true
+        let swell = CAKeyframeAnimation(keyPath: "transform.scale")
+        swell.values = [1, TrainLayers.breathGrowth, 1]
+        for part in [fade, swell] {
+            part.keyTimes = [0, 0.5, 1]
+            part.timingFunctions = ease
+        }
+        let breath = CAAnimationGroup()
+        breath.animations = [fade, swell]
         breath.duration = TrainLayers.breathSeconds
         breath.repeatCount = .infinity
         breath.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 12)
