@@ -406,6 +406,11 @@ class Interpreter:
                              "font": gs["Tf"], "tag": tag, "bold": self.is_bold(res, gs["Tf"])}
                     self.texts.append(label)
                 label["text"] += s
+                if advance is not None:
+                    # The text position moves on past what was drawn, as in any PDF viewer: something drawn next in
+                    # the same text run, such as an icon after a station name ("Dongan Hills" + accessibility), lands
+                    # after it, not on its first letter.
+                    tm_after = mat_mul([1, 0, 0, 1, advance, 0], tm)
                 if advance is not None and "advance" in label or label["text"] == s:
                     # Where this piece ends, measured along the label from its start: the label's printed width.
                     m = mat_mul(tm, gs["ctm"])
@@ -415,6 +420,8 @@ class Interpreter:
                         label["advance"] = ((end[0] - label["x"]) * math.cos(ang) + (end[1] - label["y"]) * math.sin(ang))
                     else:
                         label.pop("advance", None)
+                if advance is not None:
+                    tm = tm_after
             # everything else (gs, d, j, J, M, BDC, EMC, ri, i, sh, ...) is ignored
 
 

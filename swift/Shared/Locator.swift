@@ -55,6 +55,7 @@ final class Locator {
     init(network: SubwayNetwork) {
         net = network
         lines = network.routeLines.mapValues { $0.map { Polyline($0.map(CGPoint.init)) } }
+        complexMembers = Dictionary(grouping: network.stations.keys.sorted()) { network.stations[$0]!.complex }
         strokes = (network.routeStrokes ?? []).map { stroke in
             let points = stroke.points.map(CGPoint.init)
             let xs = points.map(\.x), ys = points.map(\.y)
@@ -136,6 +137,8 @@ final class Locator {
         return point
     }
     private var standCache: [String: CGPoint] = [:]
+    /// Complex ID → its stations (W 4 St-Wash Sq: the 8 Av and 6 Av levels).
+    private let complexMembers: [String: [String]]
 
     /// The way a train standing at `station` leaves for `next`: a unit vector (map units) along the track from the
     /// point nearest where it stands to a little way on, so it follows the line as it leaves the station rather than
@@ -177,7 +180,7 @@ final class Locator {
             }
         }
         var result = straight
-        if let pair = net.pairPaths?["\(a)|\(b)"], pair.count > 1 {
+        if let pair = net.pairPaths?["\(a)|\(b)"] ?? siblingPair(a, b), pair.count > 1 {
             result = (Polyline(pair.map(CGPoint.init)), true)
         }
         if let line = best?.line {
@@ -190,8 +193,54 @@ final class Locator {
                 result = (piece, true)
             }
         }
+        if !result.1, let chain = chainedPath(route: route, from: a, to: b) {
+            result = (Polyline(chain), true)
+        }
         hopCache[key] = result
         return result
+    }
+
+    /// For a train skipping stops on a line it doesn't normally run on (a weekend E running express on the F's track
+    /// from Parsons Blvd to Kew Gardens; an R or W on the D's West End line from 9 Av to 62 St): the track of a line
+    /// that stops at every station in between, joined hop by hop. Its own route's patterns are tried first, then the
+    /// others'. Only up to 6 stops apart, and only if every piece is drawn. Nil if none.
+    private func chainedPath(route: String, from a: String, to b: String) -> [CGPoint]? {
+        for r in [route] + patternsByRoute.keys.sorted() where r != route || patternsByRoute[r] != nil {
+            for p in patternsByRoute[r] ?? [] {
+                var stations: [String] = []
+                for platform in p.stops {
+                    if let s = stationOf(platform), stations.last != s { stations.append(s) }
+                }
+                guard let i = stations.firstIndex(of: a), let j = stations[(i + 1)...].firstIndex(of: b),
+                      j - i >= 2, j - i <= 6 else { continue }
+                var points: [CGPoint] = []
+                for k in i..<j {
+                    let x = stations[k], y = stations[k + 1]
+                    guard let piece = net.hopPaths?["\(r)|\(x)|\(y)"] ?? net.pairPaths?["\(x)|\(y)"], piece.count > 1 else {
+                        points = []
+                        break
+                    }
+                    points += piece.dropFirst(points.isEmpty ? 0 : 1).map(CGPoint.init)
+                }
+                if !points.isEmpty { return points }
+            }
+        }
+        return nil
+    }
+
+    /// The track between two other stations of the same two complexes, for a rerouted train whose stops name a level
+    /// no track joins directly (a weekend A on the F's track, stopping at Broadway-Lafayette St and then at the 8 Av
+    /// level of W 4 St, while the F's track reaches the 6 Av level). Its ends are within each complex, so the glide
+    /// follows the track and steps across inside the station. Nil if there is none.
+    private func siblingPair(_ a: String, _ b: String) -> [[Double]]? {
+        let left = complexMembers[net.stations[a]?.complex ?? a] ?? [a]
+        let right = complexMembers[net.stations[b]?.complex ?? b] ?? [b]
+        for x in left {
+            for y in right where x != y {
+                if let pair = net.pairPaths?["\(x)|\(y)"], pair.count > 1 { return pair }
+            }
+        }
+        return nil
     }
 
     /// Same as the notebook's locate_from_export(): steps 1–6 of §6, in the same order.
@@ -267,14 +316,24 @@ final class Locator {
               let first = trip.upcoming.first else { return nil }
         let route = trip.routeID
         let stop0 = (trip.vehicleStop?.isEmpty == false) ? trip.vehicleStop! : first.stop
-        guard let i0 = trip.upcoming.firstIndex(where: { $0.stop == stop0 }) else { return nil }
-        let ahead = Array(trip.upcoming[i0...])
-
         var raw: [(from: String, to: String, depart: Double, arrive: Double)] = []
-        if trip.status != "STOPPED_AT",
-           let prev = previousStop(route: route, stop: stop0, upcoming: trip.upcoming.map(\.stop)) {
-            let hopTime = net.hopTimes["\(prev)>\(stop0)"] ?? net.settings.defaultHopS
-            raw.append((prev, stop0, ahead[0].time - hopTime, ahead[0].time))
+        let ahead: [StopTime]
+        if let i0 = trip.upcoming.firstIndex(where: { $0.stop == stop0 }) {
+            ahead = Array(trip.upcoming[i0...])
+            if trip.status != "STOPPED_AT",
+               let prev = previousStop(route: route, stop: stop0, upcoming: trip.upcoming.map(\.stop)) {
+                let hopTime = net.hopTimes["\(prev)>\(stop0)"] ?? net.settings.defaultHopS
+                raw.append((prev, stop0, ahead[0].time - hopTime, ahead[0].time))
+            }
+        } else if trip.status == "STOPPED_AT" {
+            // The vehicle still reports standing at a station its trip has already dropped from the stops ahead (the
+            // two parts of the feed disagree for a moment as the train leaves): it is leaving there for the first
+            // stop listed. Without this hop the train had no timeline and was moved straight to that station.
+            ahead = trip.upcoming
+            let hopTime = net.hopTimes["\(stop0)>\(first.stop)"] ?? net.settings.defaultHopS
+            raw.append((stop0, first.stop, first.time - hopTime, first.time))
+        } else {
+            return nil
         }
         for (a, b) in zip(ahead, ahead.dropFirst()) {
             raw.append((a.stop, b.stop, max(a.departure ?? a.time, a.time), b.time))

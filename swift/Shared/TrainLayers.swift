@@ -9,7 +9,10 @@ import QuartzCore
 ///   a point on the side the train will leave by, aimed along the track toward its next stop (trains waiting in both
 ///   directions make a point on each side). Each bullet is drawn once per direction and reused, so a waiting train
 ///   costs no more than a dot. On a small map, where station circles are only a few
-///   points wide, it is a smaller gray dot instead. **Parked:** a smaller, darker dot.
+///   points wide, it is a smaller gray dot instead.
+/// * **Parked** at the end of the line, about to start a run: the same bullet, pointing the way it will leave (a train
+///   that has just finished its run, whose next trip isn't known yet, gets no point). On a small map, a smaller,
+///   darker dot.
 ///
 /// Changing between them (size and color) is animated over `morphSeconds`, so nothing pops. A hop is a
 /// single Core Animation glide along the track (`.travel` commands): the dot moves continuously, speeding
@@ -25,7 +28,7 @@ final class TrainLayers {
     var simple = false {
         didSet {
             guard simple != oldValue else { return }
-            for (key, layer) in layers { breathe(layer, looks[key] == .stopped && bullets[key] != nil && !simple) }
+            for (key, layer) in layers { breathe(layer, looks[key] != .moving && bullets[key] != nil && !simple) }
         }
     }
     /// Colors for the dots (dark or light map).
@@ -115,7 +118,7 @@ final class TrainLayers {
                 layer.position = target
                 CATransaction.commit()
                 // A train standing at a station lights up its route's bullet (set before the look, which depends on it).
-                let bullet = look == .stopped && usesBullets ? route.flatMap { routeColors[$0] != nil ? $0 : nil } : nil
+                let bullet = look != .moving && usesBullets ? route.flatMap { routeColors[$0] != nil ? $0 : nil } : nil
                 // The heading on screen (the map may be flipped or scaled), rounded to a step.
                 let step = bullet == nil ? nil : heading.map { h -> Int in
                     let a = toView(point), b = toView(CGPoint(x: point.x + h.dx, y: point.y + h.dy))
@@ -201,8 +204,10 @@ final class TrainLayers {
         }
     }
 
-    /// A dot further than this (in points) from where it must be fades out and back in there; a nearer one slides.
-    private static let fadeDistance: CGFloat = 30
+    /// A dot further than this (in points) from where it must be fades out and back in there; a nearer one slides. Only
+    /// small moves slide (between the circles of one station): a straight slide to the next station would cut across
+    /// the map instead of following the line.
+    private static let fadeDistance: CGFloat = 15
 
     private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
         hypot(a.x - b.x, a.y - b.y)
@@ -261,7 +266,7 @@ final class TrainLayers {
     /// Sets the dot's size and outline for a look (animated if called inside an animated transaction). A train shown as
     /// its route's bullet has no dot of its own: the layer is the bullet image, with room round it for the point.
     private func size(_ layer: CALayer, _ look: TrainLook, key: String) {
-        let bullet = look == .stopped && bullets[key] != nil
+        let bullet = look != .moving && bullets[key] != nil
         let d = bullet ? bulletSide : dot * TrainLayers.diameter(look)
         let bounds = CGRect(x: 0, y: 0, width: d, height: d)
         layer.bounds = bounds
@@ -274,7 +279,7 @@ final class TrainLayers {
 
     /// The dot's color for a look: none for a train shown as its bullet (the image is the whole picture).
     private func fill(_ look: TrainLook, key: String) -> CGColor {
-        look == .stopped && bullets[key] != nil ? NSColor.clear.cgColor : theme.train(look).cgColor
+        look != .moving && bullets[key] != nil ? NSColor.clear.cgColor : theme.train(look).cgColor
     }
 
     // ---- Route bullets ----
@@ -288,7 +293,7 @@ final class TrainLayers {
 
     /// The image for a train shown as its route's bullet, or nil (a plain dot).
     private func bulletImage(key: String, look: TrainLook) -> CGImage? {
-        guard look == .stopped, let route = bullets[key] else { return nil }
+        guard look != .moving, let route = bullets[key] else { return nil }
         let d = bulletDiameter, side = bulletSide
         let heading = headings[key]
         let cacheKey = "\(route)|\(Int((d * 10).rounded()))|\(scale)|\(theme.isLight)|\(heading.map(String.init) ?? "-")"
@@ -344,7 +349,7 @@ final class TrainLayers {
         layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0
         layer.zPosition = look == .moving ? 2 : (look == .stopped ? 1 : 0)  // moving trains on top
         CATransaction.commit()
-        breathe(layer, look == .stopped && bullets[key] != nil && !simple)
+        breathe(layer, look != .moving && bullets[key] != nil && !simple)
     }
 
     // ---- Breathing ----

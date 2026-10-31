@@ -45,6 +45,10 @@ final class MotionPlanner {
     /// Corrections (catching up, fading to a new place, moving a parked dot) wait a delay of up to this many seconds,
     /// fixed per train, so after each download they trickle out instead of all happening at once.
     var correctionSpread: Double = 12
+    /// A standing train moves elsewhere only once the data has put it there for this many seconds (longer than a
+    /// download): the predictions for a parked or unscheduled train sometimes put it at one station, then the next,
+    /// then back, and following each change made it shuttle between the two.
+    var settleSeconds: Double = 40
     /// Shortest a hop's glide may be, so short hops don't flick past.
     var minTravelSeconds: Double = 4
     /// Longest a hop's glide may be: a hop drawn long on the map (96 St to 110 St on the 2 and 3, around Central
@@ -84,8 +88,13 @@ final class MotionPlanner {
         case traveling(leg: Locator.Leg, start: Double, duration: Double, path: [CGPoint])
     }
     private var phases: [String: Phase] = [:]
+    /// For testing: called with each train standing somewhere new, the reason, and the phase it was in before.
+    var standTrace: ((_ key: String, _ why: String, _ before: String) -> Void)?
+    private var why = ""
     /// Corrections waiting for their train's delay: what the correction is, and when it may happen.
     private var pendingCorrections: [String: (what: String, due: Double)] = [:]
+    /// Where the data has been asking a standing train to move, and since when (see `settleSeconds`).
+    private var standingMoves: [String: (point: CGPoint, since: Double)] = [:]
     private let locator: Locator
 
     init(locator: Locator) {
@@ -121,15 +130,23 @@ final class MotionPlanner {
             guard let basePoint = base.point else { continue }
             seen.insert(key)
 
-            guard base.kind != .parked, let legs = locator.legs(for: trip, now: now) else {
+            let timeline = base.kind == .parked ? nil : locator.legs(for: trip, now: now)
+            if timeline == nil, trip.status == "STOPPED_AT", let glide = finishRun(key, trip: trip, now: now) {
+                commands += glide  // standing at the end of its run (or with nothing ahead), its dot a few stops short
+                continue
+            }
+            guard let legs = timeline else {
                 // Parked, or no timeline: stand where the notebook places it (a move waits for its turn).
                 let look: TrainLook = base.kind == .parked ? .parked : .stopped
-                commands += stop(key, station: nil, point: basePoint, look: look, now: now, route: trip.routeID)
+                why = base.kind == .parked ? "parked: \(base.how)" : "no timeline: \(base.how)"
+                commands += stop(key, station: nil, point: basePoint, look: look, now: now, route: trip.routeID,
+                                 heading: base.kind == .parked ? startHeading(trip) : nil)
                 continue
             }
             // The hop the predictions say the train is on (or about to start); nil = past its last prediction.
             guard let current = legs.first(where: { now <= $0.arrive }) else {
                 let last = legs[legs.count - 1]
+                why = "past its last prediction"
                 commands += stop(key, station: last.to, point: locator.standPoint(route: last.route, station: last.to, from: last.from),
                                  look: .stopped, now: now, route: last.route)
                 continue
@@ -140,6 +157,7 @@ final class MotionPlanner {
         for key in phases.keys where !seen.contains(key) && correctionDue(key, "gone", now: now) {
             phases[key] = nil
             pendingCorrections[key] = nil
+            standingMoves[key] = nil
             commands.append(.remove(key: key))
         }
         return commands
@@ -153,6 +171,7 @@ final class MotionPlanner {
         case nil:
             // First time we see this train: start it in the right place.
             if now < departAt {
+                why = "first sight, before its hop"
                 return stop(key, station: current.from, point: stationPoint(current, at: current.from), look: .stopped, now: now,
                             route: current.route, heading: departure(current))
             }
@@ -206,6 +225,7 @@ final class MotionPlanner {
                                        maxTravelSeconds)
                     return travel(key, leg: current, path: current.line.points, duration: duration, now: now)
                 }
+                why = "waiting at its hop's start"
                 return stop(key, station: station, point: stationPoint(current, at: current.from), look: .stopped, now: now,
                             route: current.route, heading: departure(current))
             }
@@ -261,6 +281,32 @@ final class MotionPlanner {
                            to: station == leg.from && leg.from != leg.to ? leg.to : nil)
     }
 
+    /// A train that has finished its run while its dot stands a few stops short of the end (the last hops were
+    /// missed between downloads): it glides on along the track, one hop at a time, instead of jumping to the end.
+    /// Nil when the dot is already there, isn't standing at a station, or the end isn't within 4 stops ahead.
+    private func finishRun(_ key: String, trip: Trip, now: Double) -> [TrainCommand]? {
+        if case .traveling(let leg, let start, let duration, _)? = phases[key] {
+            if now < start + duration { return [] }  // never interrupt a hop
+            phases[key] = .stopped(station: leg.to, point: stationPoint(leg, at: leg.to), look: .stopped,
+                                   route: leg.route, heading: nil)
+        }
+        guard case .stopped(let station?, _, _, _, _)? = phases[key], let stop = trip.vehicleStop,
+              let end = locator.stationOf(stop), end != station,
+              let hop = locator.catchUpLeg(route: trip.routeID, from: station, toward: end, maxHops: 4),
+              correctionDue(key, "finish run at \(end)", now: now) else { return nil }
+        stats.catchUps += 1
+        let duration = max(Double(hop.line.length) / catchUpSpeed, minTravelSeconds / 2)
+        return travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, kind: .catchUp)
+    }
+
+    /// The way a train parked at the start of its run will leave: from its first stop toward its second. Nil for a
+    /// train that has finished its run (no stops ahead) or whose stops aren't on the map.
+    private func startHeading(_ trip: Trip) -> CGVector? {
+        let stations = trip.upcoming.prefix(2).compactMap { locator.stationOf($0.stop) }
+        guard stations.count == 2, stations[0] != stations[1] else { return nil }
+        return locator.departureHeading(route: trip.routeID, from: stations[0], to: stations[1])
+    }
+
     /// The way a train standing at the start of `leg` will leave (Locator.departureHeading).
     private func departure(_ leg: Locator.Leg) -> CGVector? {
         leg.from == leg.to ? nil : locator.departureHeading(route: leg.route, from: leg.from, to: leg.to)
@@ -273,8 +319,20 @@ final class MotionPlanner {
         switch phases[key] {
         case .stopped(_, let p, let l, _, let h)?:
             let moved = hypot(p.x - point.x, p.y - point.y)
+            if moved <= 3 { standingMoves[key] = nil }  // asked to stay (again): forget any earlier request to move
             if l == look, moved < 0.01, h == heading { return [] }
-            if moved > 3, !correctionDue(key, "move to \(Int(point.x)),\(Int(point.y))", now: now) { return [] }
+            if moved > 3 {
+                // Moving a standing train: only once the data has asked for the same place for `settleSeconds`, then
+                // in this train's turn (correctionDue).
+                if let asked = standingMoves[key], hypot(asked.point.x - point.x, asked.point.y - point.y) <= 3 {
+                    if now - asked.since < settleSeconds { return [] }
+                } else {
+                    standingMoves[key] = (point, now)
+                    return []
+                }
+                if !correctionDue(key, "move to \(Int(point.x)),\(Int(point.y))", now: now) { return [] }
+                standingMoves[key] = nil
+            }
         case .traveling(_, _, _, let path)?:
             // Mid-glide, and the data now has it standing somewhere: unless that's where it's heading, it's a
             // correction too (meanwhile it keeps gliding).
@@ -282,6 +340,15 @@ final class MotionPlanner {
                !correctionDue(key, "move to \(Int(point.x)),\(Int(point.y))", now: now) { return [] }
         case nil:
             break
+        }
+        if let standTrace {
+            switch phases[key] {
+            case .stopped(let s, let p, _, _, _)? where hypot(p.x - point.x, p.y - point.y) > 3:
+                standTrace(key, why, "standing at \(s ?? "no station")")
+            case .traveling(let leg, let start, let duration, _)? :
+                standTrace(key, why, String(format: "gliding %@→%@, %.0f of %.0f s", leg.from, leg.to, now - start, duration))
+            default: break
+            }
         }
         phases[key] = .stopped(station: station, point: point, look: look, route: route, heading: heading)
         return [.place(key: key, point: point, look: look, route: route, heading: heading)]
@@ -312,7 +379,7 @@ final class MotionPlanner {
 
     /// Forgets every train (e.g. when the time-lapse takes over), returning commands that fade their dots out.
     func reset() -> [TrainCommand] {
-        defer { phases = [:] }
+        defer { phases = [:]; standingMoves = [:] }
         return phases.keys.map { .remove(key: $0) }
     }
 

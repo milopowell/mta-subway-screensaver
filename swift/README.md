@@ -70,7 +70,7 @@ Preview app options (run the executable inside the app directly):
 - `--offline`: no live data from the start, so every line runs from the timetable (in the window, or in `--snapshot` and `--dump-placements`, where it also supplies the train data)
 - `--handoff-report [--seconds 90]`: start the motion planner on the timetable, switch it to live data, and report how the scheduled trains hand over to their live twins
 - `--path-report out`: check the track every hop follows; writes `out.png`
-- `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps and slow glides
+- `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps, fades, short sideways moves (with what the feed said about each train and why the planner moved it), rerouted hops and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker
 - `--time-lapse-report [--record 420 --seconds 60]`: record live history, replay it, and check the replay is smooth
 - `--timing-report [--seconds 180]`: compare the dots' station arrivals and departures with the real trains

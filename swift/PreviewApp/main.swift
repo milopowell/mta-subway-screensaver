@@ -202,9 +202,25 @@ if arguments.contains("--path-audit") {
     planner.glideLog = []
     var cache = FeedCache(feeds: network.settings.feeds, keepFor: network.settings.staleAfterS)
     func name(_ id: String) -> String { network.stations[id]?.name ?? id }
+    var standReasons: [String: String] = [:]
+    planner.standTrace = { key, why, before in standReasons[key] = "\(why) (was \(before))" }
     var position: [String: CGPoint] = [:]  // where each dot is (or is gliding to)
     var routeOf: [String: String] = [:]
     var snaps: [(distance: CGFloat, text: String)] = [], fades = 0, reappeared: [String: Double] = [:]
+    // Short moves (over 3 units and up to 30, which TrainLayers slides in a straight line rather than fading):
+    // what reads as a train going sideways.
+    var sideways: [String: Int] = [:], tripOf: [String: Trip] = [:], sidewaysDetail: [String] = []
+    func describe(_ key: String, at t: Double) -> String {
+        guard let trip = tripOf[key] else { return "not in the latest download" }
+        let next = trip.upcoming.prefix(2).map { "\(name(network.platforms[$0.stop] ?? $0.stop)) in \(Int($0.time - t)) s" }
+        return "\(trip.tripID): \(trip.status ?? "no train") \(trip.vehicleStop.map { name(network.platforms[$0] ?? $0) } ?? "-"), "
+            + "next \(next.joined(separator: ", ")); \(hooks.locator.locate(trip, now: t).how)"
+    }
+    func nearest(_ p: CGPoint) -> String {
+        func d(_ c: [Double]) -> Double { hypot(c[0] - Double(p.x), c[1] - Double(p.y)) }
+        let s = network.stations.min { d($0.value.center) < d($1.value.center) }
+        return s.map { $0.value.name } ?? "?"
+    }
     var downloads: [Double] = [], snapTimes: [Double] = [], fadeTimes: [Double] = []
     let start = Date().timeIntervalSince1970
     var tick = start, lastDownload = -1e9, trips: [Trip] = []
@@ -218,6 +234,7 @@ if arguments.contains("--path-audit") {
             cache.receive(result!.feeds, at: result!.fetchedAt)
             trips = cache.trips
             for trip in trips { routeOf["\(trip.feed)|\(trip.identity)"] = trip.routeID }  // the planner's key
+            tripOf = Dictionary(trips.map { ("\($0.feed)|\($0.identity)", $0) }, uniquingKeysWith: { a, _ in a })
             lastDownload = tick
             downloads.append(tick)
         }
@@ -226,6 +243,11 @@ if arguments.contains("--path-audit") {
             case .place(let key, let point, _, _, _):
                 if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 3 {
                     let d = hypot(p.x - point.x, p.y - point.y)
+                    if d <= 30 {
+                        sideways["\(routeOf[key] ?? "?") standing: \(nearest(p)) → \(nearest(point))", default: 0] += 1
+                        sidewaysDetail.append("\(routeOf[key] ?? "?") \(nearest(p)) → \(nearest(point)) at +\(Int(tick - start)) s: " + describe(key, at: tick)
+                                              + "\n        planner: " + (standReasons[key] ?? "?"))
+                    }
                     snaps.append((d, String(format: "%@ snapped %.0f units (to %.0f, %.0f)", routeOf[key] ?? "?", d, point.x, point.y)))
                     snapTimes.append(tick)
                 }
@@ -233,6 +255,7 @@ if arguments.contains("--path-audit") {
             case .travel(let key, let path, _):
                 if let p = position[key], let first = path.first, hypot(p.x - first.x, p.y - first.y) > 3 {
                     let d = hypot(p.x - first.x, p.y - first.y)
+                    if d <= 30 { sideways["\(routeOf[key] ?? "?") glide starts off its dot: \(nearest(p)) → \(nearest(first))", default: 0] += 1 }
                     snaps.append((d, String(format: "%@ started a glide %.0f units from its dot", routeOf[key] ?? "?", d)))
                 }
                 position[key] = path.last
@@ -270,11 +293,15 @@ if arguments.contains("--path-audit") {
     print("\nSnaps (a dot moving instantly, or a glide starting away from its dot): \(snaps.count); fades out: \(fades)")
     for s in snaps.sorted(by: { $0.distance > $1.distance }).prefix(10) { print("  " + s.text) }
     print("  planner's reasons for fades: \(planner.stats.teleportReasons)")
+    print("\nShort sideways moves (3 to 30 units, drawn as a straight slide): \(sideways.values.reduce(0, +))")
+    for (text, n) in sideways.sorted(by: { $0.value > $1.value }).prefix(25) { print("  \(n)×  \(text)") }
+    for line in sidewaysDetail.prefix(25) { print("    " + line) }
     // Line check: is each train on its own line? Off its own line is expected for a rerouted train (a hop its route
     // doesn't normally make) and suspicious otherwise.
     print("\nLine check (each glide's average distance from its own colored line; on line = within 3 map units):")
     var perRoute: [String: (total: Int, own: Int, rerouted: Int, odd: Int)] = [:]
     var odd: [(distance: Double, text: String)] = []
+    var reroutes: [String: Int] = [:]  // hops a route doesn't normally make, on another line's track
     for g in glides where g.kind != .placeholder {
         let d = hooks.locator.distanceFromOwnLine(route: g.route, path: g.path)
         var row = perRoute[g.route] ?? (0, 0, 0, 0)
@@ -283,6 +310,7 @@ if arguments.contains("--path-audit") {
             row.own += 1
         } else if !hooks.locator.isPatternHop(route: g.route, from: g.from, to: g.to) {
             row.rerouted += 1
+            reroutes["\(g.route) \(name(g.from)) → \(name(g.to))", default: 0] += 1
         } else {
             row.odd += 1
             odd.append((d, String(format: "%@ %@ → %@: %.0f units from its own line on average (%@)", g.route, name(g.from),
@@ -295,6 +323,8 @@ if arguments.contains("--path-audit") {
         print(String(format: "  %-5@  %6d  %11d  %8d  %6d", route, r.total, r.own, r.rerouted, r.odd))
     }
     for o in odd.sorted(by: { $0.distance > $1.distance }).prefix(15) { print("  " + o.text) }
+    if !reroutes.isEmpty { print("  rerouted hops (on another line's track):") }
+    for (hop, n) in reroutes.sorted(by: { $0.value > $1.value }).prefix(15) { print("    \(n)×  \(hop)") }
 
     let under = glides.filter { !hooks.locator.overpasses(path: $0.path).isEmpty }
     print("\nGlides passing under another line (the dot slips under the overpass): \(under.count)")

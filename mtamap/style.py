@@ -117,20 +117,31 @@ def prepare(drawing):
     # letters like "1", "E", "L" are drawn as rectangles) or *masks*: white patches that hide a line behind
     # a label on the paper map. Masks must turn black on our black map; letter pieces must stay white.
     badges = [(p["lo"], p["hi"]) for p in paths
-              if p["fill"] is not None and p["curves"] and 5 <= max(p["hi"] - p["lo"]) <= 30
+              if p["fill"] is not None and p["curves"] and 5 <= max(p["hi"] - p["lo"]) <= 40  # up to the 35-unit SIR symbol
               and abs((p["hi"] - p["lo"])[0] - (p["hi"] - p["lo"])[1]) < 1.5]  # roughly round filled shapes
-    # Land: the big white shapes painted over the water before the first park (the base layer of the map).
+    # Land: the white shapes painted over the water before the first park (the base layer of the map): the boroughs,
+    # and the islands, however small or narrow (Roosevelt Island, the islands in the harbor and Jamaica Bay).
     first_park = next((i for i, p in enumerate(paths) if p["fill"] is not None and len(p["fill"]) > 3
                        and p["fill"][3] == "Green Parks"), 0)
     for i, p in enumerate(paths):
         f = p["fill"]
-        p["land"] = (i < first_park and f is not None and len(f) <= 3 and is_neutral(f) and lum(f[:3]) > 0.93
-                     and (p["hi"] - p["lo"]).prod() > 20000)
+        p["land"] = i < first_park and f is not None and len(f) <= 3 and is_neutral(f) and lum(f[:3]) > 0.93
     for p in paths:
         f = p["fill"]
         p["mask"] = (f is not None and p["stroke"] is None and not p["curves"] and is_neutral(f)
                      and lum(f[:3]) > 0.93 and max(p["hi"] - p["lo"]) < 40
                      and not inside_any((p["lo"] + p["hi"]) / 2, badges))
+    # Part-time stops are white circles ringed in black with a black number (the 5 on White Plains Rd): their number
+    # stays black on the dark map, like the letters on yellow bullets, instead of turning white like label ink.
+    bullets += [(p["lo"], p["hi"]) for p in paths
+                if p["fill"] is not None and is_neutral(p["fill"]) and lum(p["fill"][:3]) > 0.93 and p["curves"]
+                and 5 <= max(p["hi"] - p["lo"]) <= 15 and abs((p["hi"] - p["lo"])[0] - (p["hi"] - p["lo"])[1]) < 0.3]
+    # Express stops are black diamonds with a white number (the 6 and 7 express): they stay black, like station circles.
+    for p in paths:
+        f, (w, h) = p["fill"], p["hi"] - p["lo"]
+        lines = sum(1 for k, _ in p["segs"] if k == "L")
+        p["diamond"] = (f is not None and is_neutral(f) and lum(f[:3]) < 0.2 and not p["curves"] and 3 <= lines <= 4
+                        and sum(1 for k, _ in p["segs"] if k == "M") == 1 and 5 <= w <= 16 and abs(w - h) < 0.5)
     mark_outlined(drawing)
     return bullets
 
@@ -184,7 +195,7 @@ def style_path(p, bullets):
             fc = (0, 0, 0) if is_mask else (1, 1, 1)  # masks behind labels -> black; letters stay white
         elif is_neutral(c) and lum(c) < 0.2:
             center = (lo + hi) / 2
-            if is_round_circle(p) or inside_any(center, bullets):
+            if is_round_circle(p) or p.get("diamond") or inside_any(center, bullets):
                 fc = c  # station circles and letters on yellow bullets stay black
             else:
                 fc = (1, 1, 1)  # black label ink -> white
@@ -359,14 +370,29 @@ def draw_official(ax, drawing, bullets, lw_scale, text_scale, zorder=0, theme="d
                                zorder=zorder + n * 1e-6, capstyle="round" if p.get("dash") and p.get("cap") == 1 else "butt",
                                joinstyle="miter"))
         n += 1
-    # The icon font's symbols beside station names (accessibility, police, warning, airport, bus): self-contained
-    # badges, drawn in their printed colors on both maps, above the map. On the dark map an icon that is only black
-    # and white (the bus, the police shield) is drawn the other way round: printed black on a white page, it would
-    # vanish into the black; icons on a colored plate (the blue accessibility tile, the yellow warning and airport
-    # signs) stay as printed.
+    # The icon font's symbols beside station names (accessibility, police, warning, airport, bus) and some route
+    # symbols (the black circles and diamonds of part-time and express services, the one-way arrows): self-contained
+    # badges, drawn in their printed colors on both maps, above the map. On the dark map a black-and-white picture
+    # such as the bus is drawn the other way round: printed black on a white page, it would vanish into the black.
+    # Icons on a plate stay as printed: a colored one (the blue accessibility tile, the yellow warning and airport
+    # signs), or a round or square black one (route symbols and arrows, like the map's own black station circles; the
+    # police shield's tile).
     icons = drawing.get("icons", [])
-    plain = {tag for tag in {p["tag"] for p in icons}
-             if all(is_neutral(c) for q in icons if q["tag"] == tag for c in (q["fill"], q["stroke"]) if c is not None)}
+    by_tag = {}
+    for q in icons:
+        by_tag.setdefault(q["tag"], []).append(q)
+
+    def is_picture(parts):
+        if not all(is_neutral(c) for q in parts for c in (q["fill"], q["stroke"]) if c is not None):
+            return False
+        dark = [q for q in parts if q["fill"] is not None and lum(q["fill"][:3]) < 0.2]
+        if not dark:
+            return False
+        plate = max(dark, key=lambda q: (q["hi"] - q["lo"]).prod())
+        w, h = plate["hi"] - plate["lo"]
+        return abs(w - h) > 0.15 * max(w, h)  # not a round or square plate
+
+    plain = {tag for tag, parts in by_tag.items() if is_picture(parts)}
     for p in icons:
         if cropped(p["lo"], p["hi"]) or (p["fill"] is None and p["stroke"] is None):
             continue
