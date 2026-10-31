@@ -120,7 +120,18 @@ A line it merely runs beside, close enough to brush the edge of its band, doesn'
 
 Two test options check this across the whole map. `--overpass-audit` lists, for every hop, the lines ignored as only alongside. `--visibility-audit` walks every hop of every route one map unit at a time and compares where the app hides the train with where the map draws another line on top of it, from the map's drawing order alone (`--route R` for one route, `--png FILE` to mark disagreements on the map, `--json FILE` to export them). On 30 October 2026, after these fixes, wrongly hidden track was under 0.2% on every route and wrongly shown track under 1%; the remaining scheduled hops are off by 5 map units or less, almost all where a line meets a station's pill. The app then masks the dot inside that line's band, so it slips under the black border and comes out on the far side; `--overpasses ROUTE FROM TO` lists the bands a hop passes under.
 
-The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. `--path-report` lists the remaining straight hops and draws them over the map.
+The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. A fix can also place a stop that has no circle at all: Aqueduct Racetrack, shown on the paper map only as a one-way-stop arrow. `--path-report` lists the remaining straight hops and draws them over the map.
+
+The maps are redrawn from the official PDF's own drawing instructions (`mtamap/pdfdraw.py`, `mtamap/style.py`), so they follow it closely:
+- **Dotted and dashed lines** keep their pattern, like the dotted bus links to LaGuardia.
+- **See-through drawing** keeps its opacity, like the Staten Island Railway's pale line.
+- **Medium-weight labels** (bus labels, boroughs) are bold.
+- **Station icons** (accessibility, police, warning, airport, bus) come from the map's icon font. They're drawn as shapes in their printed colors. On the dark map, icons that are only black and white (the bus, the police shield) are drawn the other way round, so they don't vanish into the black.
+- **Labels keep their printed width.** They're drawn as letter outlines in Helvetica (Arial Bold for the medium weight), squeezed or stretched along their line to the width the map's own font gives them. Helvetica runs 5 to 10% wider, which made labels run into the icons beside them. The outlines make each map PDF about 2.6 MB instead of 0.45 MB, with no measurable change in drawing time.
+- **Labels drawn twice** (as text and as outlined letters in the same place, like "LGA LINK Q70") keep only the outlines, since the substitute font would no longer line up.
+- **Round letters drawn as outlines,** such as the G of "LGA", turn white with the rest of their label. Only truly round shapes count as station circles when drawing.
+
+On 31 October 2026, a comparison of the light map with the official PDF found no 60 × 60 unit area differing by more than about 3% (blurred, so font substitution barely counts). That leaves out the border, the legend and the title, which are dropped on purpose.
 
 ### Timing accuracy
 
@@ -349,7 +360,7 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | home stations | tram-button panel, or the screensaver's Options sheet | 79 St (1), 81 St (B, C) | Up to 4 stations, shown in the magnified view and on the next-train board |
 | magnification | tram-button panel, Options sheet, Command-plus / minus | Fit stations | Fit stations, or 2× to 8× the whole map fitted to the screen |
 | layout | View menu (saved) | Split View | Split View or Close-up |
-| `MAP_FIXES` | notebook §1 | 6 stations | Stations the automatic map matching places on the wrong circles: station ID → a point on its correct circles (§4) |
+| `MAP_FIXES` | notebook §1 | 8 stations | Stations the automatic map matching places on the wrong circles: station ID → a point on its correct circles (§4); a point with no circle within 6 units places the stop right there |
 | appearance | Appearance menu, or the Options sheet | Dark | Dark, Light, Match the Mac (follows System Settings > Appearance), or Light by day (7 AM to 7 PM; `dayStartHour` and `dayEndHour` in `swift/Shared/SubwaySettings.swift`) |
 | train board | Appearance > Train Board, or the Options sheet | Glass | In the close-up, the next-train board sits on Liquid Glass (macOS 26; a frosted blur before), on clear glass (the map shows through unblurred; drawn by the board itself, since Apple's clear glass style looked like regular glass in the screensaver), or on a solid card. In the split layout it is always solid |
 | text backdrops | Appearance > Train Board, or the Options sheet | on | On clear glass, a rounded patch behind the heading, the clock, each station name, the direction labels and each train, so the rest of the board can stay clear |

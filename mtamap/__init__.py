@@ -24,7 +24,7 @@ class OfficialMap:
         that point. For the few stations the automatic matching still gets wrong."""
         self.COLOR = COLOR
         it = interpret(str(pdf_path))
-        self.drawing = {"paths": it.paths, "texts": it.texts}
+        self.drawing = {"paths": it.paths, "texts": it.texts, "icons": it.icons}  # icons: for drawing only
         self.bullets = S.prepare(self.drawing)
 
         parent_of = {s: (p if isinstance(p, str) else s) for s, p in zip(stops["stop_id"], stops["parent_station"])}
@@ -61,8 +61,15 @@ class OfficialMap:
         separated = M.separate_shared(assigned, self.clusters, seqs, served, complex_of or {}) if complex_of else 0
         # 6. manual fixes
         centers = np.array([c["center"] for c in self.clusters])
+        circle_xy = np.array([c["center"] for c in self.circles])
         for station, point in (fixes or {}).items():
-            assigned[station] = int(np.linalg.norm(centers - np.asarray(point), axis=1).argmin())
+            distance = np.linalg.norm(centers - np.asarray(point), axis=1)
+            if np.linalg.norm(circle_xy - np.asarray(point), axis=1).min() > 6:
+                # A stop drawn without circles (Aqueduct Racetrack's one-way-stop arrow): a group of its own there.
+                self.clusters.append({"members": [], "center": np.asarray(point, float), "groups": [], "routes": set()})
+                assigned[station] = len(self.clusters) - 1
+            else:
+                assigned[station] = int(distance.argmin())
 
         self.assigned, self.names, self.served = assigned, names, served
         # Which routes run between each pair of neighboring stations, busiest first (for rerouted trains).
@@ -182,7 +189,8 @@ class OfficialMap:
         k = self.assigned.get(station)
         if k is None:
             return None
-        pts = np.array([self.circles[i]["center"] for i in self.clusters[k]["members"]])
+        pts = np.array([self.circles[i]["center"] for i in self.clusters[k]["members"]]
+                       or [self.clusters[k]["center"]])  # a group of its own (manual fix) has no circles
         lo, hi = pts.min(axis=0) - self.CIRCLE_RADIUS, pts.max(axis=0) + self.CIRCLE_RADIUS
         return (lo[0], lo[1], hi[0], hi[1])
 

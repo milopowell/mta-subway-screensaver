@@ -64,12 +64,16 @@ class Interpreter:
         self.pdf = pdf
         self.paths = []  # dicts: pts list of subpaths [(code, [(x,y),...])], fill, stroke, lw, evenodd, tag
         self.texts = []  # dicts: x, y, angle, size, text, color, font
+        self.icons = []  # paths, as in `paths`: the symbols of the map's icon font (accessibility, police, warning, …)
         self.colorspaces = {}
+        self._type3 = {}  # font object number → its glyph programs (see type3()), or None for an ordinary font
+        self._widths = {}  # font object number → (first char, widths), or None (see advance())
 
     # ---- resources ----
     def resources(self, dict_bytes):
-        res = {"xobj": {}, "cs": {}, "pat": {}}
-        for key, target in [("XObject", "xobj"), ("ColorSpace", "cs"), ("Pattern", "pat")]:
+        res = {"xobj": {}, "cs": {}, "pat": {}, "font": {}, "gs": {}}
+        for key, target in [("XObject", "xobj"), ("ColorSpace", "cs"), ("Pattern", "pat"), ("Font", "font"),
+                            ("ExtGState", "gs")]:
             m = re.search(rb"/" + key.encode() + rb"\s*<<(.*?)>>", dict_bytes, re.S)
             if m:
                 for nm, num in re.findall(rb"/(\w+)\s+(\d+)\s+0\s+R", m.group(1)):
@@ -99,6 +103,67 @@ class Interpreter:
             return ((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k))
         return (0, 0, 0)
 
+    def is_bold(self, res, font):
+        """True for the map's medium-weight font (Neue Haas Grotesk 65 Medium: bus labels, borough names), which is
+        drawn bold; station names use the regular weight (55)."""
+        num = res["font"].get((font or "").lstrip("/"))
+        if num is None:
+            return False
+        m = re.search(rb"/BaseFont\s*/([^\s/>]+)", self.pdf.dict_of(num))
+        return bool(m) and (b"65Md" in m.group(1) or b"Bold" in m.group(1))
+
+    def advance(self, res, gs, parts):
+        """How far a Tj/TJ moves along its line, in text space units, from the font's own character widths (so a
+        label's printed width is known exactly, whatever font draws it here); None if the font gives no widths."""
+        num = res["font"].get((gs["Tf"] or "").lstrip("/"))
+        if num is None:
+            return None
+        if num not in self._widths:
+            d = self.pdf.dict_of(num)
+            first, widths = re.search(rb"/FirstChar\s+(\d+)", d), re.search(rb"/Widths\s*\[([^\]]*)\]", d)
+            self._widths[num] = (int(first.group(1)), list(map(float, widths.group(1).split()))) if first and widths else None
+        if self._widths[num] is None:
+            return None
+        first, widths = self._widths[num]
+        total = 0.0
+        for part in parts:
+            if isinstance(part, float):
+                total -= part / 1000 * gs["Tfs"]
+                continue
+            for c in part:
+                w = widths[c - first] if 0 <= c - first < len(widths) else 0
+                total += w / 1000 * gs["Tfs"] + gs["Tc"] + (gs["Tw"] if c == 32 else 0)
+        return total * gs["Tz"] / 100
+
+    def type3(self, res, font):
+        """The icon font, if `font` is one: a Type 3 font, whose characters are small drawings (colored symbols such as
+        the accessibility, police and warning icons beside station names). Returns its matrix, resources, and per
+        character code the glyph's drawing (stream object) and advance width; None for an ordinary font."""
+        num = res["font"].get((font or "").lstrip("/"))
+        if num is None:
+            return None
+        if num not in self._type3:
+            d = self.pdf.dict_of(num)
+            if b"/Type3" not in d:
+                self._type3[num] = None
+            else:
+                procs = {n.decode(): int(o) for n, o in
+                         re.findall(rb"/([\w.]+)\s+(\d+)\s+0\s+R", re.search(rb"/CharProcs\s*<<(.*?)>>", d, re.S).group(1))}
+                names, code = {}, 0
+                for tok in re.findall(rb"\d+|/[\w.]+", re.search(rb"/Differences\s*\[(.*?)\]", d, re.S).group(1)):
+                    if tok.startswith(b"/"):
+                        names[code] = tok[1:].decode()
+                        code += 1
+                    else:
+                        code = int(tok)
+                first = int(re.search(rb"/FirstChar\s+(\d+)", d).group(1))
+                widths = list(map(float, re.search(rb"/Widths\s*\[([^\]]*)\]", d).group(1).split()))
+                matrix = list(map(float, re.search(rb"/FontMatrix\s*\[([^\]]*)\]", d).group(1).split()))
+                glyphs = {c: (procs.get(n), widths[c - first] if 0 <= c - first < len(widths) else 0)
+                          for c, n in names.items()}
+                self._type3[num] = {"matrix": matrix, "res": self.resources(d), "glyphs": glyphs}
+        return self._type3[num]
+
     def pattern_color(self, num):
         """The color a tiling pattern paints (the map's patterns are diagonal stripes in one route color: the hatched
         lines of part-time services such as the Z and the 7 express), or None."""
@@ -115,9 +180,13 @@ class Interpreter:
         return color, pattern
 
     # ---- main loop ----
-    def run(self, data, res, ctm, tag="page"):
+    def run(self, data, res, ctm, tag="page", alpha=None, out=None):
         gs = {"ctm": ctm, "fill": (0, 0, 0), "stroke": (0, 0, 0), "lw": 1.0, "fcs": None, "scs": None,
-              "Tc": 0, "Tw": 0, "Tz": 100, "TL": 0, "Tf": None, "Tfs": 1, "dash": None, "cap": 0}
+              "Tc": 0, "Tw": 0, "Tz": 100, "TL": 0, "Tf": None, "Tfs": 1, "dash": None, "cap": 0,
+              "fill_alpha": 1.0, "stroke_alpha": 1.0}
+        # A form drawn see-through (a transparency group) passes its opacity on: it multiplies whatever the form's
+        # own drawing sets (the Staten Island Railway's line is drawn at full opacity inside a form drawn at 60%).
+        group = alpha or {"fill_alpha": 1.0, "stroke_alpha": 1.0}
         stack = []
         operands = []
         path = []
@@ -164,6 +233,16 @@ class Interpreter:
                 gs["dash"] = (list(arr), o[-1]) if arr else None
             elif op == "J":
                 gs["cap"] = int(o[-1])
+            elif op == "gs":
+                # Graphics state: only the opacity matters here (the paper map draws a few things see-through,
+                # such as the Staten Island Railway's pale line).
+                num = res["gs"].get(o[-1].lstrip("/"))
+                if num is not None:
+                    d = self.pdf.dict_of(num)
+                    for key, name in ((rb"/ca\s+([\d.]+)", "fill_alpha"), (rb"/CA\s+([\d.]+)", "stroke_alpha")):
+                        m = re.search(key, d)
+                        if m:
+                            gs[name] = float(m.group(1))
             elif op == "cs":
                 gs["fcs"] = res["cs"].get(o[-1].lstrip("/"))
             elif op == "CS":
@@ -223,8 +302,9 @@ class Interpreter:
                         dash = ([x * scale for x in gs["dash"][0]], gs["dash"][1] * scale)
                     painted = {"fill_pattern": op in ("f", "F", "f*", "B", "B*", "b", "b*") and gs.get("fill_pattern"),
                                "stroke_pattern": op in ("S", "s", "B", "B*", "b", "b*") and gs.get("stroke_pattern")}
-                    self.paths.append({"segs": path, "fill": fill, "stroke": stroke, "lw": gs["lw"] * scale,
-                                       "evenodd": op.endswith("*"), "tag": tag, "dash": dash, "cap": gs["cap"],
+                    alpha = {k: group[k] * gs[k] for k in ("fill_alpha", "stroke_alpha") if group[k] * gs[k] < 0.999}
+                    (self.paths if out is None else out).append({"segs": path, "fill": fill, "stroke": stroke, "lw": gs["lw"] * scale,
+                                       "evenodd": op.endswith("*"), "tag": tag, "dash": dash, "cap": gs["cap"], **alpha,
                                        **{k: v for k, v in painted.items() if v}})
                 path = []
             elif op in ("W", "W*"):
@@ -243,7 +323,12 @@ class Interpreter:
                             sub_res["cs"].setdefault(k, v)
                         for k, v in res["pat"].items():
                             sub_res["pat"].setdefault(k, v)
-                        self.run(self.pdf.stream(num), sub_res, mat_mul(mtx, gs["ctm"]), tag=f"form{num}")
+                        for k, v in res["font"].items():
+                            sub_res["font"].setdefault(k, v)
+                        for k, v in res["gs"].items():
+                            sub_res["gs"].setdefault(k, v)
+                        self.run(self.pdf.stream(num), sub_res, mat_mul(mtx, gs["ctm"]), tag=f"form{num}",
+                                 alpha={k: group[k] * gs[k] for k in ("fill_alpha", "stroke_alpha")})
             # ---- text ----
             elif op == "BT":
                 tm = tlm = [1, 0, 0, 1, 0, 0]
@@ -285,6 +370,24 @@ class Interpreter:
                     tm = tlm
                     label = None
                 parts = o[-1] if op == "TJ" else [o[-1]]
+                icons = self.type3(res, gs["Tf"])
+                if icons is not None:
+                    # Icon font: run each character's drawing at its place, into `icons`; no label.
+                    label = None
+                    for part in parts:
+                        if isinstance(part, float):
+                            tm = mat_mul([1, 0, 0, 1, -part / 1000 * gs["Tfs"] * gs["Tz"] / 100, 0], tm)
+                            continue
+                        for code in part:
+                            proc, width = icons["glyphs"].get(code, (None, 0))
+                            trm = mat_mul([gs["Tfs"] * gs["Tz"] / 100, 0, 0, gs["Tfs"], 0, 0], mat_mul(tm, gs["ctm"]))
+                            if proc is not None:  # tagged per icon, so each can be recolored as a whole
+                                self.run(self.pdf.stream(proc), icons["res"], mat_mul(icons["matrix"], trm),
+                                         tag=f"icon{len(self.icons)}", alpha={k: group[k] * gs[k] for k in ("fill_alpha", "stroke_alpha")},
+                                         out=self.icons)
+                            advance = (width * icons["matrix"][0] * gs["Tfs"] + gs["Tc"]) * gs["Tz"] / 100
+                            tm = mat_mul([1, 0, 0, 1, advance, 0], tm)
+                    continue
                 s = ""
                 for part in parts:
                     if isinstance(part, bytes):
@@ -292,6 +395,7 @@ class Interpreter:
                     elif isinstance(part, float) and part < -250:
                         s += " "
                 trm = mat_mul([gs["Tfs"], 0, 0, gs["Tfs"], 0, 0], mat_mul(tm, gs["ctm"]))
+                advance = self.advance(res, gs, parts)  # text space units, or None
                 if label is not None and jumped and not continues(label, trm):
                     label = None
                 jumped = False
@@ -299,9 +403,18 @@ class Interpreter:
                     x, y = trm[4], trm[5]
                     label = {"x": x, "y": y, "angle": math.degrees(math.atan2(trm[1], trm[0])),
                              "size": math.hypot(trm[0], trm[1]), "text": "", "color": gs["fill"],
-                             "font": gs["Tf"], "tag": tag}
+                             "font": gs["Tf"], "tag": tag, "bold": self.is_bold(res, gs["Tf"])}
                     self.texts.append(label)
                 label["text"] += s
+                if advance is not None and "advance" in label or label["text"] == s:
+                    # Where this piece ends, measured along the label from its start: the label's printed width.
+                    m = mat_mul(tm, gs["ctm"])
+                    end = (trm[4] + advance * m[0], trm[5] + advance * m[1])
+                    ang = math.radians(label["angle"])
+                    if advance is not None:
+                        label["advance"] = ((end[0] - label["x"]) * math.cos(ang) + (end[1] - label["y"]) * math.sin(ang))
+                    else:
+                        label.pop("advance", None)
             # everything else (gs, d, j, J, M, BDC, EMC, ri, i, sh, ...) is ignored
 
 
