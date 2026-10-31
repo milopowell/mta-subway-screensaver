@@ -137,6 +137,23 @@ final class Locator {
     }
     private var standCache: [String: CGPoint] = [:]
 
+    /// The way a train standing at `station` leaves for `next`: a unit vector (map units) along the track from the
+    /// point nearest where it stands to a little way on, so it follows the line as it leaves the station rather than
+    /// the straight line to the next stop (and the track running a little to one side of the circle doesn't tilt it).
+    /// Nil if the hop has no length.
+    func departureHeading(route: String, from station: String, to next: String) -> CGVector? {
+        let key = "\(route)|\(station)|\(next)"
+        if let cached = headingCache[key] { return cached }
+        let line = hopLine(route: route, from: station, to: next).line
+        let along = min(line.nearest(to: standPoint(route: route, station: station, to: next)).along, line.length * 0.5)
+        let here = line.point(at: along), ahead = line.point(at: min(along + 12, line.length * 0.6))
+        let dx = ahead.x - here.x, dy = ahead.y - here.y, length = hypot(dx, dy)
+        let heading = length < 0.5 ? nil : CGVector(dx: dx / length, dy: dy / length)
+        headingCache[key] = heading
+        return heading
+    }
+    private var headingCache: [String: CGVector?] = [:]
+
     /// The track a train follows from station a to b, read like locate_from_export: the path the notebook exported
     /// for this route (`hop_paths`, routed along the joined pieces of its colored line); for a hop that isn't
     /// exported, the stretch of a single piece of the route's line between the two stations; failing that (a train

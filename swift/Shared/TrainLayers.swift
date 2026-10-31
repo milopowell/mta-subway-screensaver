@@ -5,8 +5,10 @@ import QuartzCore
 ///
 /// * **Moving:** white with a soft glow, and the largest dot, so the eye goes to what is moving.
 /// * **Stopped** at a station: the station's circle lights up as the route's bullet (its colored circle with the
-///   letter, a diamond for express variants, in a thin white ring), like the signs in the stations. Each bullet is drawn
-///   once and reused, so a waiting train costs no more than a dot. On a small map, where station circles are only a few
+///   letter, a diamond for express variants, in a thin white ring), like the signs in the stations. The ring comes to
+///   a point on the side the train will leave by, aimed along the track toward its next stop (trains waiting in both
+///   directions make a point on each side). Each bullet is drawn once per direction and reused, so a waiting train
+///   costs no more than a dot. On a small map, where station circles are only a few
 ///   points wide, it is a smaller gray dot instead. **Parked:** a smaller, darker dot.
 ///
 /// Changing between them (size and color) is animated over `morphSeconds`, so nothing pops. A hop is a
@@ -56,6 +58,9 @@ final class TrainLayers {
     var routeColors: [String: (NSColor, NSColor)] = [:]
     /// Trains standing at stations shown as their route's bullet: key → route.
     private var bullets: [String: String] = [:]
+    /// The way each waiting train will leave, as an angle on screen (radians, in whole steps of `headingStep`).
+    private var headings: [String: Int] = [:]
+    private static let headingStep = CGFloat.pi / 36  // 5°: enough to follow the track, few enough images
     /// Bullet images by route, size and theme, drawn once.
     private var bulletImages: [String: CGImage] = [:]
     /// Bullets only where station circles are big enough to show them (the magnified map).
@@ -91,7 +96,7 @@ final class TrainLayers {
         }
         for command in commands {
             switch command {
-            case .place(let key, let point, let look, let route):
+            case .place(let key, let point, let look, let route, let heading):
                 let target = toView(point)
                 var layer = layers[key] ?? makeLayer(key, at: target, look: look)
                 let now = layer.presentation()?.position ?? layer.position  // where the dot is on screen
@@ -111,8 +116,14 @@ final class TrainLayers {
                 CATransaction.commit()
                 // A train standing at a station lights up its route's bullet (set before the look, which depends on it).
                 let bullet = look == .stopped && usesBullets ? route.flatMap { routeColors[$0] != nil ? $0 : nil } : nil
-                if bullets[key] != bullet {
+                // The heading on screen (the map may be flipped or scaled), rounded to a step.
+                let step = bullet == nil ? nil : heading.map { h -> Int in
+                    let a = toView(point), b = toView(CGPoint(x: point.x + h.dx, y: point.y + h.dy))
+                    return Int((atan2(b.y - a.y, b.x - a.x) / TrainLayers.headingStep).rounded())
+                }
+                if bullets[key] != bullet || headings[key] != step {
                     bullets[key] = bullet
+                    headings[key] = step
                     looks[key] = nil  // re-apply the look: bullet or dot
                 }
                 setLook(look, key: key, on: layer, animated: animated)
@@ -126,6 +137,7 @@ final class TrainLayers {
                     layer = replace(key, at: points[0], look: .moving)  // far from the glide's start: fade across
                 }
                 bullets[key] = nil
+                headings[key] = nil
                 setLook(.moving, key: key, on: layer, animated: animated)
                 let start = layer.presentation()?.position ?? layer.position
                 CATransaction.begin()
@@ -182,6 +194,7 @@ final class TrainLayers {
             case .remove(let key):
                 looks[key] = nil
                 bullets[key] = nil
+                headings[key] = nil
                 guard let layer = layers.removeValue(forKey: key) else { continue }
                 fadeOut(layer)
             }
@@ -220,6 +233,7 @@ final class TrainLayers {
         layers.removeAll()
         looks.removeAll()
         bullets.removeAll()
+        headings.removeAll()
     }
 
     // ---- Appearance ----
@@ -245,10 +259,10 @@ final class TrainLayers {
     }
 
     /// Sets the dot's size and outline for a look (animated if called inside an animated transaction). A train shown as
-    /// its route's bullet has no dot of its own: the layer is the bullet image, a little larger than the station circle.
+    /// its route's bullet has no dot of its own: the layer is the bullet image, with room round it for the point.
     private func size(_ layer: CALayer, _ look: TrainLook, key: String) {
         let bullet = look == .stopped && bullets[key] != nil
-        let d = bullet ? bulletDiameter : dot * TrainLayers.diameter(look)
+        let d = bullet ? bulletSide : dot * TrainLayers.diameter(look)
         let bounds = CGRect(x: 0, y: 0, width: d, height: d)
         layer.bounds = bounds
         layer.cornerRadius = d / 2
@@ -267,14 +281,19 @@ final class TrainLayers {
 
     /// A waiting train's bullet: a little larger than the station circle it covers, so the white ring shows round it.
     private var bulletDiameter: CGFloat { circle * 1.22 }
+    /// The bullet's image (and layer) is larger, with room on every side for the point.
+    private var bulletSide: CGFloat { bulletDiameter * TrainLayers.pointReach * 2 }
+    /// How far the point reaches from the bullet's center, in bullet diameters.
+    private static let pointReach: CGFloat = 0.8
 
     /// The image for a train shown as its route's bullet, or nil (a plain dot).
     private func bulletImage(key: String, look: TrainLook) -> CGImage? {
         guard look == .stopped, let route = bullets[key] else { return nil }
-        let d = bulletDiameter
-        let cacheKey = "\(route)|\(Int((d * 10).rounded()))|\(scale)|\(theme.isLight)"
+        let d = bulletDiameter, side = bulletSide
+        let heading = headings[key]
+        let cacheKey = "\(route)|\(Int((d * 10).rounded()))|\(scale)|\(theme.isLight)|\(heading.map(String.init) ?? "-")"
         if let image = bulletImages[cacheKey] { return image }
-        let pixels = Int((d * scale).rounded(.up))
+        let pixels = Int((side * scale).rounded(.up))
         guard pixels > 0, let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
                                               space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -282,7 +301,23 @@ final class TrainLayers {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
         let ring = max(d * 0.08, 1)
-        let center = CGPoint(x: d / 2, y: d / 2)
+        let center = CGPoint(x: side / 2, y: side / 2)
+        if let heading {
+            // The point: a white triangle from the tip to where its sides touch the ring, so ring and point make one
+            // smooth teardrop.
+            let a = CGFloat(heading) * TrainLayers.headingStep
+            let r = (d - ring * 0.3) / 2, tip = d * TrainLayers.pointReach, spread = acos(r / tip)
+            func at(_ angle: CGFloat, _ distance: CGFloat) -> CGPoint {
+                CGPoint(x: center.x + cos(angle) * distance, y: center.y + sin(angle) * distance)
+            }
+            let point = NSBezierPath()
+            point.move(to: at(a, tip))
+            point.line(to: at(a + spread, r))
+            point.line(to: at(a - spread, r))
+            point.close()
+            NSColor.white.setFill()
+            point.fill()
+        }
         // The white ring: the bullet drawn a ring-width larger in white first (a circle, or a diamond for 6X, 7X, FX).
         RouteSymbolsView.draw(route, center: center, diameter: d - ring * 0.3, colors: [route: (.white, .white)])
         RouteSymbolsView.draw(route, center: center, diameter: d - ring * 2, colors: routeColors)

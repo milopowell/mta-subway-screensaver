@@ -212,7 +212,7 @@ if arguments.contains("--path-audit") {
         }
         for command in planner.update(trips: trips, now: tick) {
             switch command {
-            case .place(let key, let point, _, _):
+            case .place(let key, let point, _, _, _):
                 if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 3 {
                     let d = hypot(p.x - point.x, p.y - point.y)
                     snaps.append((d, String(format: "%@ snapped %.0f units (to %.0f, %.0f)", routeOf[key] ?? "?", d, point.x, point.y)))
@@ -458,7 +458,7 @@ if arguments.contains("--time-lapse-report") {
         lastClock = lapse.clock(wall: wall)
         for command in commands {
             switch command {
-            case .place(let key, let point, _, _):
+            case .place(let key, let point, _, _, _):
                 if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 2 {
                     noteJump(key, "stop", from: p, to: point, clock: lapse.clock(wall: wall))
                 }

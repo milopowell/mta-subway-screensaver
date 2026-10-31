@@ -18,10 +18,10 @@ import QuartzCore
 /// Close-up layout (`SubwaySettings.Layout.closeUp`):
 /// ```
 /// ┌──────────────────────────────────┐
-/// │                       ┌────────┐ │
-/// │   one section of the  │overview│ │  ← the whole map, outlining the section shown
-/// │   map at a readable   └────────┘ │
-/// │   zoom (zoomPanel)               │
+/// │                                  │
+/// │   one section of the map at a    │  ← the full map (fullPanel) is hidden here and gets
+/// │   readable zoom (zoomPanel)      │    no trains
+/// │                                  │
 /// │ ┌─────────────┐                  │
 /// │ │ next trains │                  │
 /// │ └─────────────┘                  │
@@ -124,7 +124,7 @@ final class SubwayView: NSView {
 
         if let document {
             let full = MapPanel(document: document), zoom = MapPanel(document: document)
-            full.dotRange = 6...10  // base marker size in points (2...3 when it is the close-up's overview)
+            full.dotRange = 6...10  // base marker size in points
             zoom.dotRange = 8...14  // a little bigger when magnified
             if let units = network?.settings.trainDotUnits { full.dotUnits = units; zoom.dotUnits = units }
             layer?.insertSublayer(full.root, at: 0)  // below the subviews (next-train panel, button)
@@ -392,6 +392,12 @@ final class SubwayView: NSView {
 
     // ---- Each tick ----
 
+    /// The map panels on screen, which get the trains (a hidden one gets none, and is filled when it is shown again,
+    /// since every layout change recreates the dots).
+    private var shownPanels: [MapPanel] {
+        [fullPanel, zoomPanel].compactMap { $0 }.filter { !$0.root.isHidden }
+    }
+
     /// Asks the planner (live) or the time-lapse what changed and passes the commands to both map panels.
     /// The time-lapse is a backup: it takes over when live data is unavailable (or when forced for testing),
     /// provided it has recorded enough history; otherwise the live trains keep moving on their last predictions.
@@ -411,8 +417,7 @@ final class SubwayView: NSView {
         }
         commands += replay ? timeLapse.update(history: history, wall: now) : planner.update(trips: liveTrips, now: now)
         updateModeNote(now: now)
-        fullPanel?.apply(commands, animated: animated)
-        zoomPanel?.apply(commands, animated: animated)
+        for panel in shownPanels { panel.apply(commands, animated: animated) }
         if !nextTrains.isHidden, now - boardUpdatedAt >= 0.9 || !animated {
             updateBoards(now: now)
             boardUpdatedAt = now
@@ -550,7 +555,7 @@ final class SubwayView: NSView {
         CATransaction.setDisableActions(true)
         styleAsCard(fullPanel.root, closeUp)
         styleAsCard(nextTrains.layer, closeUp)
-        // The overview card sits above the close-up map; in the split layout the full map goes back underneath.
+        // The full map is hidden in the close-up; in the split layout it sits underneath the magnified one.
         if let zoom = zoomPanel?.root {
             fullPanel.root.removeFromSuperlayer()
             if closeUp { layer?.insertSublayer(fullPanel.root, above: zoom) } else { layer?.insertSublayer(fullPanel.root, below: zoom) }
@@ -559,19 +564,13 @@ final class SubwayView: NSView {
 
         if closeUp {
             // One section of the map fills the window at the chosen magnification (automatic: framed on the home
-            // stations, between 2× and 4×), centered on them. The overview (top right) outlines the section shown.
+            // stations, between 2× and 4×), centered on them.
+            fullPanel.root.isHidden = true
             zoomPanel?.root.isHidden = false
             zoomPanel?.layout(frame: bounds, showing: magnifiedRegion(size: bounds.size, document: document, autoRange: 2...4),
                               scale: scale)
 
             let margin: CGFloat = 12
-            let overviewWidth = min(max(w * 0.14, 120), 220)
-            let overviewHeight = (overviewWidth / mapAspect).rounded()
-            fullPanel.dotRange = 2...3
-            fullPanel.layout(frame: CGRect(x: w - overviewWidth - margin, y: h - overviewHeight - margin,
-                                           width: overviewWidth, height: overviewHeight),
-                             showing: document.bounds, scale: scale)
-            fullPanel.setOutline(zoomPanel?.mapRect)
 
             // A narrow card that can grow tall: large symbols and minutes, readable from across a room.
             let boardWidth = min(max(w * 0.22, 250), 330)
@@ -580,6 +579,7 @@ final class SubwayView: NSView {
             placeBoard(CGRect(x: margin, y: boardBottom, width: boardWidth,
                               height: boardHeight(width: boardWidth, maxHeight: h * 0.7)), closeUp: true)
         } else if split {
+            fullPanel.root.isHidden = false
             let fullWidth = min(h * mapAspect, w * 0.6)
             let gap: CGFloat = 2  // thin black divider
             let rightX = fullWidth + gap, rightWidth = w - rightX
@@ -596,6 +596,7 @@ final class SubwayView: NSView {
             nextTrains.isHidden = false
             placeBoard(CGRect(x: rightX, y: 0, width: rightWidth, height: board), closeUp: false)
         } else {
+            fullPanel.root.isHidden = false
             fullPanel.dotRange = 6...10
             fullPanel.layout(frame: bounds, showing: document.bounds, scale: scale)
             fullPanel.setOutline(nil)
@@ -607,8 +608,8 @@ final class SubwayView: NSView {
         CATransaction.setDisableActions(true)
         statusLayer.contentsScale = scale
         statusLayer.frame = CGRect(x: 8, y: 8, width: 560, height: 16)
-        // Notes go in the top-right corner (below the overview card in the close-up).
-        let noteTop = closeUp ? fullPanel.root.frame.minY - 8 : h - 8
+        // Notes go in the top-right corner.
+        let noteTop = h - 8
         for (i, note) in [modeLayer, offlineLayer].enumerated() {
             note.contentsScale = scale
             note.position = CGPoint(x: w - 12, y: noteTop - CGFloat(i) * 22)
@@ -619,10 +620,8 @@ final class SubwayView: NSView {
         if let planner, tickTimer != nil {
             let now = Date().timeIntervalSince1970
             let commands = showingTimeLapse ? [] : planner.resync(now: now)
-            for panel in [fullPanel, zoomPanel].compactMap({ $0 }) {
-                panel.clearTrains()
-                panel.apply(commands)
-            }
+            for panel in [fullPanel, zoomPanel].compactMap({ $0 }) { panel.clearTrains() }
+            for panel in shownPanels { panel.apply(commands) }
             if showingTimeLapse {
                 timeLapse?.redraw()
                 updateTrains(now: now)

@@ -78,7 +78,10 @@ final class TimeLapse {
                 commands.append(.place(key: key, point: locator.standPoint(route: record.route, station: visits[i].station,
                                                                            from: i > 0 ? visits[i - 1].station : nil,
                                                                            to: next.map { visits[$0].station }),
-                                       look: .stopped, route: record.route))
+                                       look: .stopped, route: record.route,
+                                       heading: next.flatMap { locator.departureHeading(route: record.route,
+                                                                                       from: visits[i].station,
+                                                                                       to: visits[$0].station) }))
             } else if let n = next {
                 // On the hop from visit i to visit n: one glide to the station, lasting what remains of the real hop.
                 if case .gliding(let j)? = phases[key], j == n { continue }

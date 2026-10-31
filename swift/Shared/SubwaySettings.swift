@@ -11,7 +11,7 @@ final class SubwaySettings {
         /// The whole map, with a magnified map of the home stations and the next-train board beside it.
         case split
         /// One section of the map filling the screen at a readable zoom, centered on the home stations, with the
-        /// next-train board and a small overview map as corner cards.
+        /// next-train board as a corner card.
         case closeUp
     }
 
