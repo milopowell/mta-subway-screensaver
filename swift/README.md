@@ -2,17 +2,17 @@
 
 The native macOS app and screensaver. The project overview, data flow, settings and known issues are in the [main README](../README.md); this file covers only the Swift code.
 
-The app reads the two files the notebook exports in §8 of `subway_pipeline.ipynb`: `../export/map_black.pdf` and `../export/network.json`. Both are copied into the app and the screensaver at build time, so **rebuild after re-running the export**.
+The app reads the four files the notebook exports in §8 of `subway_pipeline.ipynb`: the maps `../export/map_black.pdf` and `../export/map_light.pdf`, `../export/network.json` (stations, tracks, stop patterns) and `../export/schedule.json` (the timetable, for lines without live data). They are copied into the apps and the screensaver at build time, so **rebuild (or reinstall) after re-running the export**.
 
 ## Layout
 
 | Folder | Built into | Contents |
 |---|---|---|
-| `Shared/` | both targets | Everything below |
+| `Shared/` | all three | Everything below |
 | `PreviewApp/` | SubwayPreview | A normal Mac app that shows `SubwayView` in a window, for development, plus the command-line test options |
 | `Sandbox/` | SubwaySandbox | A separate app for sending trains by hand and trying out new features: no live data, no saved settings (see below) |
 | `Saver/` | SubwaySaver | `SubwaySaverView`, the `.saver` entry point: hosts `SubwayView`, provides the Options sheet, stops on `willstop`; `thumbnail.png` for System Settings |
-| `../export/` | both targets | The notebook's exported map and network data (bundled as resources) |
+| `../export/` | all three | The notebook's exported maps, network data and timetable (bundled as resources) |
 
 The preview app's and the sandbox's icons are in `Assets.xcassets` in their folders, drawn by `../tools/make_icons.swift` (the preview app's "night lines": red, blue and orange lines on black with one white train; the sandbox's "blueprint": white track on a blue drafting grid). They are original artwork, so they are kept in the repository; to change them, edit and run the script, then rebuild.
 
@@ -22,26 +22,27 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 
 | File | Role |
 |---|---|
-| `SubwayView.swift` | Lays out the map panels and the next-train board (split or close-up layout). Downloads feeds every 30 s and updates trains every second |
-| `MapPanel.swift` | One view of the map: the map bitmap, its train dots and an optional dashed outline |
+| `SubwayView.swift` | Lays out the map panels and the next-train board (split or close-up layout). Downloads feeds every 30 s and updates trains every second; lines without live data run from the timetable, and the corner note says which |
+| `MapPanel.swift` | One view of the map: the map bitmap, its trains and an optional dashed outline (the split layout's full map, showing the magnified area) |
 | `MapDocument.swift` | Renders a region of the map PDF to a bitmap |
 | `Viewport.swift` | Fits a map region to a panel's shape |
 | `SubwayNetwork.swift` | Reads `network.json` |
 | `FeedClient.swift` | Downloads and decodes the 8 live feeds in parallel; `FeedCache` holds each feed's last good download when one fails; `FeedHub` shares one download loop among all views |
 | `gtfs-realtime.pb.swift` | Generated feed decoder (do not edit) |
-| `Locator.swift` | Places trains: an exact port of the notebook's `locate_from_export` (hops follow the exported `hop_paths`), plus each train's timeline of hops (`legs`) |
-| `MotionPlanner.swift` | Turns timelines into motion: when each train stops, glides, waits or catches up |
-| `TrainLayers.swift` | Draws the dots and runs the glide animations (Core Animation) |
+| `Locator.swift` | Places trains: an exact port of the notebook's `locate_from_export` (hops follow the exported `hop_paths`, and rerouted trains another line's track), plus each train's timeline of hops (`legs`), where each waiting train will leave toward, and which lines a train passes under |
+| `MotionPlanner.swift` | Turns timelines into motion: when each train stands, glides, waits, catches up or fades elsewhere |
+| `TrainLayers.swift` | Draws the trains (white dots when moving; route bullets pointing the way they leave, breathing, when waiting or parked) and runs the glide animations (Core Animation) |
 | `TripHistory.swift` | Records when each train actually reached and left each station, from successive downloads |
 | `TimeLapse.swift` | Replays that history at 20 times speed in a loop (same commands as MotionPlanner): a testing tool |
 | `Schedule.swift` | The MTA timetable (`schedule.json`): the trains that should be running now, described like live trips, for lines without live data; `Trip.identity`, the trip code a live train and its scheduled twin share |
 | `Polyline.swift` | Geometry along a track line |
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
-| `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker |
+| `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker, the next-train board and the waiting trains' bullets |
 | `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance, train board style and tint |
 | `Theme.swift` | Dark and light: which map to show and the colors of the dots, board, cards and notes |
 | `AppearanceOptions.swift` | The appearance choices in the screensaver's Options sheet: dark or light, the train board's glass and its tint |
+| `BuildInfo.swift` | The commit and date an installed copy was built from, for the About window (stamped by `../tools/install_apps.sh`) |
 
 ## Building and running
 
