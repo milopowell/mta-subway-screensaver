@@ -33,7 +33,8 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `MotionPlanner.swift` | Turns timelines into motion: when each train stops, glides, waits or catches up |
 | `TrainLayers.swift` | Draws the dots and runs the glide animations (Core Animation) |
 | `TripHistory.swift` | Records when each train actually reached and left each station, from successive downloads |
-| `TimeLapse.swift` | Replays that history at 20 times speed in a loop (same commands as MotionPlanner): a backup when live data is unavailable |
+| `TimeLapse.swift` | Replays that history at 20 times speed in a loop (same commands as MotionPlanner): a testing tool |
+| `Schedule.swift` | The MTA timetable (`schedule.json`): the trains that should be running now, described like live trips, for lines without live data; `Trip.identity`, the trip code a live train and its scheduled twin share |
 | `Polyline.swift` | Geometry along a track line |
 | `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
@@ -65,13 +66,15 @@ Preview app options (run the executable inside the app directly):
 - `--dump-placements out.json`: write every trip's placement (feed, trip_id, x, y, how) and quit
 - train data for those two: `--live` (download now), or `--feeds-dir DIR --now UNIXTIME` (saved feeds `DIR/<feed>.pb`)
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move
-- `--time-lapse`: force the time-lapse (normally a backup when live data is unavailable); `--time-lapse-after S` starts it after S seconds of history instead of 5 minutes
+- `--time-lapse`: force the time-lapse; `--time-lapse-after S` starts it after S seconds of history instead of 5 minutes
+- `--offline`: no live data from the start, so every line runs from the timetable (in the window, or in `--snapshot` and `--dump-placements`, where it also supplies the train data)
+- `--handoff-report [--seconds 90]`: start the motion planner on the timetable, switch it to live data, and report how the scheduled trains hand over to their live twins
 - `--path-report out`: check the track every hop follows; writes `out.png`
 - `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker
 - `--time-lapse-report [--record 420 --seconds 60]`: record live history, replay it, and check the replay is smooth
 - `--timing-report [--seconds 180]`: compare the dots' station arrivals and departures with the real trains
-- `--simulate-outage FEED[,FEED...]` or `--simulate-outage all`: treat those feeds as failed after the first download (in the window, in `--plan-report`, and in `--snapshot`)
+- `--simulate-outage FEED[,FEED...]` or `--simulate-outage all`: treat those feeds as failed after the first download (in the window, in `--plan-report`, and in `--snapshot`, where `--outage-age S` sets how long ago they failed: over 300 s, their lines run from the timetable)
 
 `build/` holds build output and can be deleted at any time.
 

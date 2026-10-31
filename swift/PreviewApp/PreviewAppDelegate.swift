@@ -31,6 +31,7 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         if let i = CommandLine.arguments.firstIndex(of: "--simulate-outage"), i + 1 < CommandLine.arguments.count {
             view.simulatedOutage = Set(CommandLine.arguments[i + 1].split(separator: ",").map(String.init))
         }
+        view.simulatedOfflineStart = CommandLine.arguments.contains("--offline")  // as if started without internet
         window.contentView = view
         subwayView = view
         NSApp.mainMenu = makeMenu()  // after the view exists, so the Time-lapse item shows its saved state

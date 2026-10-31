@@ -41,6 +41,11 @@ final class SubwayView: NSView {
     var tick: TimeInterval = 1.0
     /// For testing: feeds treated as failed in every round after the first ("all" = every feed).
     var simulatedOutage: Set<String> = []
+    /// For testing: no live data at all, from the first round (as when starting without internet).
+    var simulatedOfflineStart = false
+    /// For testing, in snapshots: how long ago `simulatedOutage` began. Past the stale limit (5 minutes), those lines
+    /// have no data left and run from the timetable.
+    var simulatedOutageAge: Double = 120
     /// For testing: replay recorded history (the time-lapse) even while live data is available. Otherwise the
     /// time-lapse only takes over when live data is unavailable (every feed failing), as a backup.
     var forceTimeLapse = false {
@@ -57,6 +62,8 @@ final class SubwayView: NSView {
     private let network: SubwayNetwork?
     private let locator: Locator?
     private let planner: MotionPlanner?
+    /// The timetable: lines without live data run from it (nil for an export made before it was added).
+    private let schedule: Schedule?
     /// What actually happened over the last half hour (recorded from every download), and its replay.
     private let history: TripHistory?
     private let timeLapse: TimeLapse?
@@ -87,6 +94,8 @@ final class SubwayView: NSView {
     /// Each feed's last good download (see FeedCache): a feed that fails briefly keeps its trains on screen.
     private var feedCache: FeedCache?
     private var liveTrips: [Trip] = []
+    /// The trains shown this tick: live, plus scheduled ones on lines without live data (see `trains(now:)`).
+    private var shownTrips: [Trip] = []
     private var fetchedAt: Double = 0
     private var tickTimer: Timer?
     /// This view's subscription to the shared downloads (FeedHub), while started.
@@ -110,11 +119,13 @@ final class SubwayView: NSView {
             let lapse = TimeLapse(locator: loc)
             timeLapse = lapse
             history = TripHistory(platforms: net.platforms, keep: lapse.window + 120)
+            schedule = Schedule.loadBundled()
         } catch {
             NSLog("SubwayView: couldn't load network.json: %@", error.localizedDescription)
             network = nil
             locator = nil
             planner = nil
+            schedule = nil
             timeLapse = nil
             history = nil
         }
@@ -304,7 +315,7 @@ final class SubwayView: NSView {
         var round = 0
         feedSubscription = FeedHub.shared.subscribe(settings: network.settings) { [weak self] fresh, at in
             guard let self else { return }
-            var fresh = fresh
+            var fresh = self.simulatedOfflineStart ? [:] : fresh
             if round > 0, !self.simulatedOutage.isEmpty {
                 fresh = fresh.filter { !self.simulatedOutage.contains($0.key) && !self.simulatedOutage.contains("all") }
             }
@@ -331,7 +342,25 @@ final class SubwayView: NSView {
     }
 
     private func updateOfflineNote() {
-        guard let cache = feedCache, cache.isOffline else {
+        guard let cache = feedCache else { return }
+        let scheduled = scheduledFeeds
+        if schedule != nil, !scheduled.isEmpty, !cache.isOffline || scheduled.count < cache.feeds.count {
+            // Some lines only: name them as their bullets do, by feed ("A C E S · L"; S = the Rockaway shuttle).
+            let lines = cache.feeds.filter { scheduled.contains($0) }.map { feed in
+                var names: [String] = []
+                for route in (schedule?.feedOf ?? [:]).filter({ $0.value == feed }).keys.sorted(by: { ($0.count, $0) < ($1.count, $1) })
+                where !route.hasSuffix("X") {
+                    let name = RouteSymbolsView.label(for: route)
+                    if !names.contains(name) { names.append(name) }
+                }
+                return names.joined(separator: " ")
+            }
+            offlineLayer.string = "Scheduled service on \(lines.joined(separator: " · "))  ·  live data unavailable"
+            offlineLayer.isHidden = false
+            fitNote(offlineLayer)
+            return
+        }
+        guard cache.isOffline else {
             offlineLayer.isHidden = true
             return
         }
@@ -341,6 +370,9 @@ final class SubwayView: NSView {
             offlineLayer.string = "Live data unavailable since \(time)"
         } else {
             offlineLayer.string = "Live data unavailable"
+        }
+        if schedule != nil, !scheduled.isEmpty {
+            offlineLayer.string = (offlineLayer.string as? String ?? "") + "  ·  scheduled service"
         }
         if showingTimeLapse, let timeLapse {
             offlineLayer.string = (offlineLayer.string as? String ?? "")
@@ -385,9 +417,25 @@ final class SubwayView: NSView {
         timeLapse?.minimumHistory = seconds
     }
 
-    /// Whether the time-lapse should be showing: forced for testing, or because live data is unavailable.
+    /// Whether the time-lapse should be showing: forced for testing. (It was the backup when live data is
+    /// unavailable; the timetable is now, and the time-lapse remains that only for an export without one.)
     private var wantsTimeLapse: Bool {
-        forceTimeLapse || feedCache?.isOffline == true
+        forceTimeLapse || (schedule == nil && feedCache?.isOffline == true)
+    }
+
+    /// Feeds whose lines run from the timetable: those with no live data at all (failed, and nothing held from
+    /// earlier). A feed that fails briefly keeps its last predictions for up to 5 minutes first (FeedCache).
+    private var scheduledFeeds: Set<String> {
+        schedule == nil ? [] : feedCache?.withoutData ?? []
+    }
+
+    /// The trains to show at `now`: every live one, plus the timetable's on lines without live data. When a feed
+    /// comes back, its live trains take over their scheduled twins (same MotionPlanner key, Trip.identity): each
+    /// glides on from where its twin is, or fades across if far off, like any correction; scheduled trains with no
+    /// live twin fade out, and live ones the timetable didn't have fade in.
+    private func trains(now: Double) -> [Trip] {
+        guard let schedule, let network else { return liveTrips }
+        return liveTrips + schedule.trips(at: now, feeds: scheduledFeeds, parkWindow: network.settings.parkWindowS)
     }
 
     // ---- Each tick ----
@@ -415,7 +463,8 @@ final class SubwayView: NSView {
             modeChanged = true
             updateOfflineNote()
         }
-        commands += replay ? timeLapse.update(history: history, wall: now) : planner.update(trips: liveTrips, now: now)
+        shownTrips = trains(now: now)
+        commands += replay ? timeLapse.update(history: history, wall: now) : planner.update(trips: shownTrips, now: now)
         updateModeNote(now: now)
         for panel in shownPanels { panel.apply(commands, animated: animated) }
         if !nextTrains.isHidden, now - boardUpdatedAt >= 0.9 || !animated {
@@ -454,7 +503,7 @@ final class SubwayView: NSView {
         guard let network else { return }
         nextTrains.time = Date(timeIntervalSince1970: now)
         nextTrains.boards = settings.homeStations.compactMap {
-            StationBoard.make(station: $0, trips: liveTrips, network: network, now: now,
+            StationBoard.make(station: $0, trips: shownTrips, network: network, now: now,
                               perDirection: nextTrains.perDirection)
         }
     }
@@ -696,9 +745,13 @@ final class SubwayView: NSView {
         frame = CGRect(origin: .zero, size: size)
         liveTrips = trips
         fetchedAt = now
-        if !simulatedOutage.isEmpty {
-            // Show the outage handling: these trips were downloaded 2 minutes ago, and the latest round failed.
-            receive(Dictionary(grouping: trips, by: \.feed), at: now - 120)
+        if simulatedOfflineStart {
+            liveTrips = []
+            receive([:], at: now)  // nothing ever downloaded: every line from the timetable
+        } else if !simulatedOutage.isEmpty {
+            // Show the outage handling: these trips were downloaded `simulatedOutageAge` seconds ago (2 minutes unless
+            // set), and the latest round failed.
+            receive(Dictionary(grouping: trips, by: \.feed), at: now - simulatedOutageAge)
             receive(Dictionary(grouping: trips, by: \.feed).filter {
                 !simulatedOutage.contains($0.key) && !simulatedOutage.contains("all")
             }, at: now)

@@ -1,6 +1,6 @@
 # MTA Subway Screensaver
 
-A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, either recolored for a black background (dark navy water, dark green parks) or in the paper map's own colors, with automatic switching between the two. Each train is a dot that glides along the track between stations and slips under the lines that pass over it. The screensaver shows a magnified section of the map centered on your home stations, with a next-train board on glass in one corner. If live data becomes unavailable, a time-lapse replays the last half hour at 20 times speed instead.
+A macOS screensaver that shows every New York City subway train live. The trains are drawn on a copy of the official MTA subway map, either recolored for a black background (dark navy water, dark green parks) or in the paper map's own colors, with automatic switching between the two. Each train is a dot that glides along the track between stations and slips under the lines that pass over it. The screensaver shows a magnified section of the map centered on your home stations, with a next-train board on glass in one corner. Lines without live data (no internet, or one of the MTA's feeds down) run from the MTA timetable instead, at real speed, and hand over to the live trains when data returns.
 
 There are no pictures here, since every view of the app shows the MTA map, which stays out of the repository (see "Permissions and sharing"). Build it to see it.
 
@@ -92,15 +92,23 @@ Real trains move very slowly at map scale: a typical hop is about 37 map units i
 
 ### Time-lapse
 
-The time-lapse is a backup for when live data is unavailable, and a testing tool. `TripHistory` records, from every download, when each train reached and left each station (the same method as the timing report below), keeping each trip's stations in order and its times consistent. `TimeLapse` replays the last 30 minutes at 20 times speed: half an hour plays in 90 seconds, then the loop restarts. Every time is known, so each hop is one glide lasting the real hop time divided by 20.
+The time-lapse is a testing tool. (It was the backup for when live data is unavailable until the timetable took that over; it still is for an export made before `schedule.json` existed.) `TripHistory` records, from every download, when each train reached and left each station (the same method as the timing report below), keeping each trip's stations in order and its times consistent. `TimeLapse` replays the last 30 minutes at 20 times speed: half an hour plays in 90 seconds, then the loop restarts. Every time is known, so each hop is one glide lasting the real hop time divided by 20.
 
-It takes over automatically when every feed fails and at least 5 minutes have been recorded (the history is kept in memory while the app runs); the offline note then reads "Live data unavailable since … · replaying the last 30 min". Live motion resumes as soon as a download succeeds. For testing, Debug > Force Time-lapse (Option-Command-T) or the `--time-lapse` launch option turns it on regardless; add `--time-lapse-after 60` to start it after one minute of history instead of five.
+For testing, Debug > Force Time-lapse (Option-Command-T) or the `--time-lapse` launch option turns it on regardless; add `--time-lapse-after 60` to start it after one minute of history instead of five.
 
 At 20 times speed there are dozens of stops and starts every second, so the time-lapse uses simpler motion: dots change between moving and stopped instantly instead of over 0.4 s, and glides (about 3 s each) skip the overpass masks. Measured on 29 October 2026, this brought the app from 6–13% of one core during the time-lapse to 2–4%, about the same as live motion. WindowServer (which draws every app's animations) stayed at about 45% whether the time-lapse or live motion was running (with the preview app's own live window also open), so the time-lapse adds little to it.
 
 ### When a download fails
 
-`FeedCache` (in `FeedClient.swift`) keeps the last good download of each feed. A feed counts as failed on a network error, an HTTP error, unreadable data, or an empty response. When a feed fails, its trains keep following their predicted timetable instead of vanishing. The app retries after 10 seconds instead of 30. Held data is dropped once it is 5 minutes old (the stale limit). When every feed fails, a small note in the bottom-right corner reads "Live data unavailable since" and the time of the last good download.
+`FeedCache` (in `FeedClient.swift`) keeps the last good download of each feed. A feed counts as failed on a network error, an HTTP error, unreadable data, or an empty response. When a feed fails, its trains keep following their last predictions instead of vanishing. The app retries after 10 seconds instead of 30. Held data is dropped once it is 5 minutes old (the stale limit).
+
+### Scheduled service
+
+A feed with no data left (failed, with nothing held, or held for over 5 minutes) runs from the MTA timetable instead. This happens to every feed when the screensaver starts without internet. `export/schedule.json` (§8 of the notebook, about 1.2 MB) holds the whole timetable compactly: trips that share a route, stops and running times are one group, listed by start time, plus the weekday, Saturday and Sunday calendars and holidays. `Schedule` (in `swift/Shared/Schedule.swift`) describes every train that should be running now as the live feed would describe it: the stops still ahead with their times, standing at a platform or heading for the next one. The motion planner, the map and the next-train board then treat it exactly like a live train. A date outside the timetable's dates (before it starts, or after it runs out) uses the timetable for the same day of the week. Building the trains every second is cheap: measured on 31 October 2026, the preview app used 2.4–2.7% of one core with every line scheduled against 2.1% live, and WindowServer was unchanged (38–42%).
+
+The corner note says which lines are scheduled: "Scheduled service on A C E S · live data unavailable" when some feeds are down, or "Live data unavailable since 14:20 · scheduled service" when all are.
+
+Handing over when data returns: each trip keeps the MTA's trip code (start time, route, direction, as in `083100_A..N`), which the live feed uses too, and the motion planner keys trains by it (`Trip.identity`). So a live train takes over its scheduled twin's dot. It continues from there like any correction: it waits if the timetable ran ahead, catches up along the track if it ran behind, and fades across only if it is somewhere else entirely. Scheduled trains with no live twin (a canceled run) fade out, and live trains the timetable didn't have fade in. `--handoff-report` measures this. On 31 October 2026, 241 of 347 scheduled trains had a live twin: 232 carried on as it (29 by catching up) and 9 faded across. That day's live trains ran on the previous schedule while the exported timetable started the next day, so on an ordinary day more trains match.
 
 On live data (95 seconds, 4 feed downloads): about 80 trains are gliding at any moment, the median hop takes 27 seconds, and real jumps are rare. Almost all jumps are parked placeholder dots that the MTA's data reassigns to a train elsewhere.
 
@@ -173,7 +181,8 @@ mta-screensaver/
 ├── export/                    written by §8; bundled into the Swift app at build time
 │   ├── map_black.pdf          the recolored map (black land, dark water and parks); 1 PDF point = 1 map unit (1656 × 1978)
 │   ├── map_light.pdf          the same map in the paper map's colors, for light mode
-│   └── network.json           stations, platforms, routes, stopping patterns, hop times, focus views
+│   ├── network.json           stations, platforms, routes, stopping patterns, hop times, focus views
+│   └── schedule.json          the whole timetable, compactly: what lines without live data run on
 ├── swift/                     the macOS app and screensaver (see swift/README.md)
 │   ├── Shared/                code used by both targets
 │   ├── PreviewApp/            the SubwayPreview development app
@@ -334,7 +343,11 @@ cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/Subwa
 | `$APP --dump-placements out.json --feeds-dir DIR --now UNIXTIME` | Places every trip from saved feeds and writes the positions |
 | `$APP --plan-report --seconds 95` | Runs the motion planner on live data and reports glide speeds, trains in motion, catch-ups and jumps |
 | `$APP --plan-report --simulate-outage gtfs-ace` | The same, with that feed (or `all`) failing after the first download |
-| `open SubwayPreview.app --args --simulate-outage all` | Opens the preview window with every feed failing after the first download, to see the offline note |
+| `open SubwayPreview.app --args --simulate-outage all` | Opens the preview window with every feed failing after the first download: their trains keep their last predictions for 5 minutes, then run from the timetable |
+| `open SubwayPreview.app --args --offline` | Opens the preview window as if started without internet: every line runs from the timetable |
+| `$APP --snapshot out.png --offline` | Renders the view with the timetable's trains for now, as when starting without internet |
+| `$APP --snapshot out.png --live --simulate-outage gtfs-ace --outage-age 400` | Renders a partial outage: that feed failed 400 s ago (past the 5-minute hold), so the A, C, E and Rockaway shuttle run from the timetable while the rest is live |
+| `$APP --handoff-report` | Starts the motion planner on the timetable, switches it to live data, and reports how many scheduled trains carried on as their live twin, faded across, or faded out |
 | `~/anaconda3/bin/python ~/mta-screensaver/tools/compare_swift_python.py FEEDS_DIR $APP` | Downloads the feeds once, places trains in both Python and Swift, and compares them train by train |
 
 The status line in the preview app shows the train counts and the app's own CPU use.
@@ -366,7 +379,7 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | text backdrops | Appearance > Train Board, or the Options sheet | on | On clear glass, a rounded patch behind the heading, the clock, each station name, the direction labels and each train, so the rest of the board can stay clear |
 | glass tint | Appearance > Train Board, or the Options sheet (slider) | 30% | How strongly the glass is tinted with the theme's background: lower is more see-through, higher is easier to read over a busy map |
 | `LAND_LIGHT` | `mtamap/style.py` | off-white | Land color of the light map (re-run §8 and rebuild after changing) |
-| time-lapse | automatic when offline; Debug menu to force | off | Backup replay of the last 30 minutes at 20 times speed. `speed`, `window` and `minimumHistory` are in `swift/Shared/TimeLapse.swift` |
+| time-lapse | Debug menu or `--time-lapse` (testing) | off | Replay of the last 30 minutes at 20 times speed. `speed`, `window` and `minimumHistory` are in `swift/Shared/TimeLapse.swift` |
 
 Settings marked "exported" take effect in the app only after re-running §8 and rebuilding.
 

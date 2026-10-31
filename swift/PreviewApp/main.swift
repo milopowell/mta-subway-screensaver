@@ -18,6 +18,7 @@ import AppKit
 //       --feeds-dir <dir> --now <unix>   read saved feeds <dir>/<feed>.pb and place trains at time <unix>
 //                                        (used to compare with the notebook on identical data)
 //   --plan-report [--seconds S]          run the motion planner on live data and report how trains move
+//   --handoff-report [--seconds S]       start on the timetable, switch to live data, report how the dots hand over
 //   --timing-report [--seconds S]        compare the dots' station arrivals/departures with the real trains
 //   --time-lapse-report [--record S --seconds S]  record live history, replay it, and check the replay is smooth
 //   --path-report <file>                 check the track every hop is drawn along; writes <file>.png
@@ -27,7 +28,11 @@ import AppKit
 //   --time-lapse                         force the time-lapse (normally a backup when live data is unavailable)
 //       [--time-lapse-after S]           start it after S seconds of history instead of 5 minutes
 //   --simulate-outage FEED[,FEED…]|all   treat those feeds as failed after the first download
-//                                        (in the window, or in --plan-report)
+//                                        (in the window, or in --plan-report; in a snapshot, failed for
+//                                        --outage-age S seconds, 120 unless given: over 300, their lines run
+//                                        from the timetable)
+//   --offline                            no live data from the start: every line runs from the timetable
+//                                        (in the window, or in a snapshot)
 
 let arguments = CommandLine.arguments
 
@@ -41,8 +46,14 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-/// Trips + the time to place them at, from --live or --feeds-dir/--now (nil if neither was given).
+/// Trips + the time to place them at, from --live, --feeds-dir/--now or --offline (the timetable's trains now; nil if
+/// none was given).
 func commandLineTrips(network: SubwayNetwork) -> (trips: [Trip], now: Double)? {
+    if arguments.contains("--offline") {
+        guard let schedule = Schedule.loadBundled() else { fail("schedule.json isn't bundled: run the notebook's §8 export") }
+        let now = value(after: "--now").flatMap(Double.init) ?? Date().timeIntervalSince1970
+        return (schedule.trips(at: now, feeds: Set(network.settings.feeds), parkWindow: network.settings.parkWindowS), now)
+    }
     if let dir = value(after: "--feeds-dir") {
         guard let now = value(after: "--now").flatMap(Double.init) else { fail("--feeds-dir needs --now <unix time>") }
         do {
@@ -206,7 +217,7 @@ if arguments.contains("--path-audit") {
             done.wait()
             cache.receive(result!.feeds, at: result!.fetchedAt)
             trips = cache.trips
-            for trip in trips { routeOf["\(trip.feed)|\(trip.tripID)"] = trip.routeID }
+            for trip in trips { routeOf["\(trip.feed)|\(trip.identity)"] = trip.routeID }  // the planner's key
             lastDownload = tick
             downloads.append(tick)
         }
@@ -570,6 +581,54 @@ if arguments.contains("--timing-report") {
     exit(0)
 }
 
+if arguments.contains("--handoff-report") {
+    // Starts the motion planner on the timetable's trains (as when starting without internet), then hands it live data,
+    // and reports what each scheduled dot does over the next --seconds (default 90): continues as its live twin (keeps
+    // moving, or catches up or waits), fades across to where the live train really is, or fades out (no live twin).
+    // Time runs simulated, from a minute ago (the live predictions are about now).
+    guard let network = try? SubwayNetwork.loadBundled(), let schedule = Schedule.loadBundled() else {
+        fail("network.json or schedule.json isn't bundled: run the notebook's §8 export")
+    }
+    let locator = Locator(network: network), planner = MotionPlanner(locator: locator)
+    var result: (trips: [Trip], fetchedAt: Double)?
+    let done = DispatchSemaphore(value: 0)
+    Task.detached { result = await FeedClient.fetchAll(settings: network.settings); done.signal() }
+    done.wait()
+    let live = result!.trips, switchAt = result!.fetchedAt
+    let seconds = Double(value(after: "--seconds") ?? "90") ?? 90
+    let feeds = Set(network.settings.feeds), park = network.settings.parkWindowS
+    var scheduledKeys = Set<String>()
+    for t in stride(from: switchAt - 60, to: switchAt, by: 1) {
+        for command in planner.update(trips: schedule.trips(at: t, feeds: feeds, parkWindow: park), now: t) {
+            if case .travel(let key, _, _) = command { scheduledKeys.insert(key) }
+            if case .place(let key, _, _, _, _) = command { scheduledKeys.insert(key) }
+        }
+    }
+    let before = planner.stats
+    var removed = Set<String>(), added = Set<String>()
+    for t in stride(from: switchAt, to: switchAt + seconds, by: 1) {
+        for command in planner.update(trips: live, now: t) {
+            switch command {
+            case .remove(let key): removed.insert(key)
+            case .place(let key, _, _, _, _), .travel(let key, _, _):
+                if !scheduledKeys.contains(key) { added.insert(key) }
+            }
+        }
+    }
+    let liveKeys = Set(live.map { "\($0.feed)|\($0.identity)" })
+    let twins = scheduledKeys.intersection(liveKeys)
+    let faded = twins.intersection(removed)  // a twin removed and re-added: too far off, faded across
+    print(String(format: "%d scheduled dots before the switch; %d live trips", scheduledKeys.count, liveKeys.count))
+    print(String(format: "  %d have a live twin: %d continued as it (glide, catch-up or wait), %d faded across to it",
+                 twins.count, twins.count - faded.count, faded.count))
+    print(String(format: "  %d had no live twin and faded out; %d live trains appeared without a scheduled twin",
+                 scheduledKeys.subtracting(liveKeys).count, added.count))
+    print(String(format: "  planner after the switch: %d catch-ups, %d fades across", planner.stats.catchUps - before.catchUps,
+                 planner.stats.teleports - before.teleports))
+    for (reason, n) in planner.stats.teleportReasons.sorted(by: { $0.value > $1.value }) { print("    \(n)  \(reason)") }
+    exit(0)
+}
+
 if arguments.contains("--plan-report") {
     // Runs MotionPlanner on live data for --seconds (default 90), once a second, across real feed refreshes
     // (every 30 s, like the app), and reports how trains move: glide speeds, how many move at once, and how
@@ -643,7 +702,9 @@ if wantsSnapshot != nil || wantsDump != nil {
     guard let hooks = view.testHooks else { fail("network.json isn't bundled: run the notebook's §8 export and rebuild") }
     if let feeds = value(after: "--simulate-outage") {
         view.simulatedOutage = Set(feeds.split(separator: ",").map(String.init))  // snapshot as if those just failed
+        if let age = value(after: "--outage-age").flatMap(Double.init) { view.simulatedOutageAge = age }
     }
+    view.simulatedOfflineStart = arguments.contains("--offline")
 
     let data = commandLineTrips(network: hooks.network)  // nil = no trains (map only)
     var placements: [(trip: Trip, placement: Placement)] = []

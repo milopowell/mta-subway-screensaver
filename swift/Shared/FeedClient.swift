@@ -139,6 +139,12 @@ struct FeedCache {
 
     /// True when every feed failed in the latest round: no connection, or the MTA's servers are down.
     var isOffline: Bool { lastRound != nil && failed.count == feeds.count }
+
+    /// Feeds with no data at all: failed, and nothing held from earlier (or held too long). Their lines run from the
+    /// timetable (Schedule). Empty until the first round has been tried.
+    var withoutData: Set<String> {
+        lastRound == nil ? [] : Set(feeds.filter { latest[$0] == nil })
+    }
 }
 
 /// One download loop shared by every SubwayView in the process. The screensaver gets a view per display (plus a small

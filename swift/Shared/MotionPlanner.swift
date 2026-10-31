@@ -113,7 +113,10 @@ final class MotionPlanner {
         var commands: [TrainCommand] = []
         var seen = Set<String>()
         for trip in trips {
-            let key = "\(trip.feed)|\(trip.tripID)"
+            // Keyed by the MTA's trip code, so a live train continues as the same dot as its scheduled twin when live
+            // data returns (Trip.identity); by the whole ID if two trips ever share a code.
+            var key = "\(trip.feed)|\(trip.identity)"
+            if seen.contains(key) { key = "\(trip.feed)|\(trip.tripID)" }
             let base = locator.locate(trip, now: now)  // the notebook's rules decide whether it's shown
             guard let basePoint = base.point else { continue }
             seen.insert(key)
