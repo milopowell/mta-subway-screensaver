@@ -328,7 +328,7 @@ zsh ~/mta-screensaver/tools/install_saver.sh
 
 This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. The screensaver always shows the close-up: the magnified map filling the screen, centered on your stations. Its **Options…** sheet sets those stations (up to four), the magnification, the appearance and the train board; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
 
-The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`.
+The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`. While the display sleeps it pauses downloads and updates, and resumes when it wakes.
 
 ### Tests and measurements
 
@@ -409,10 +409,15 @@ The MTA republishes the static schedule several times a year. The current export
 These are the issues most likely to affect how smoothly the app runs, roughly in order of urgency.
 
 1. **The schedule expires on 15 May 2027.** From two weeks before, a corner note says so ("Timetable ends …"), and after it "Timetable out of date since …", both asking to run the setup again: the screensaver can't refresh its own data. The live feeds keep working afterwards, and offline the app runs the timetable for the same day of the week. But any new stopping pattern in the next schedule is unknown to the app: a train on one may skip the motion planner's timeline and fade between stations, and offline service follows the old timetable. Refresh as described above once the MTA publishes the new file.
-2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which can keep running after the screensaver closes; the saver therefore stops on `com.apple.screensaver.willstop` (tested: 0.01% CPU afterwards). Its behavior on lock, sleep and wake, and with several displays, has not yet been tested on screen.
-3. **Network and battery while the screensaver runs.** About 17 MB per hour and 1–2% of one core. That is fine while the Mac is plugged in. On battery, the app could poll less often or stop when the display sleeps.
+2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which stays loaded after the screensaver closes, so the saver stops all its work on `com.apple.screensaver.willstop`. It has been tested on screen, on 2 November 2026:
+   - The screensaver started, and the Mac locked with it.
+   - The display slept and woke, and the Mac was unlocked, then locked and unlocked again.
+   - Throughout, after the screensaver ended, Apple's process stayed loaded at 0.0% CPU for 5 minutes.
 
-   Memory was measured over 2 hours on 29 October 2026 (`test_saver --soak 7200`, with repeated screensaver stops and starts and a 45-minute internet outage, during which the time-lapse took over; the timetable does that now): the screensaver stayed at 25–34 MB with no upward trend (+0.3 MB per hour, within noise), and Apple's screensaver host running it at 83–94 MB. The preview app held at 61–63 MB in its default window and settled at about 100 MB in a larger one (bigger map images).
+   macOS can leave the screensaver running while the display sleeps, until the Mac is woken. So downloads and updates pause when the display sleeps and resume when it wakes (Apple's process at 0.0% CPU with the display dark, against 0.1–19% before this). Not yet tested: several displays.
+3. **Network and battery while the screensaver runs.** About 17 MB per hour and 1–2% of one core while it shows, and nothing while the display sleeps. On battery, the app could also poll less often.
+
+   Memory, measured on 2 November 2026 (`test_saver --soak 3600`, one hour on live data): the screensaver stayed at 47–55 MB with no upward trend (first 50 MB, last 49 MB), at 1.6–1.9% of one core, and stopped cleanly afterwards (0.01%). Apple's screensaver host running it held about 155 MB. Both are higher than on 29 October (25–34 MB and 83–94 MB, over 2 hours with a 45-minute internet outage), from the larger maps (icons and label outlines) and the timetable; neither grows. The preview app held at 61–63 MB in its default window and settled at about 100 MB in a larger one (bigger map images), as measured on 29 October.
 4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner, the timetable trains and the route bullets exist only in Swift, by design: the notebook places trains and checks the data, and the app animates them.
 
 

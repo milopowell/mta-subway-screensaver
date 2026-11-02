@@ -94,6 +94,10 @@ final class SubwayView: NSView {
     /// Each feed's last good download (see FeedCache): a feed that fails briefly keeps its trains on screen.
     private var feedCache: FeedCache?
     private var reduceMotionObserver: NSObjectProtocol?
+    /// Display sleep and wake (see `pauseWhileDisplaySleeps`).
+    private var displayObservers: [NSObjectProtocol] = []
+    /// True while downloads and updates are paused because the display is asleep; they resume when it wakes.
+    private var pausedForDisplaySleep = false
     /// A note when the bundled timetable is about to run out, or has (see `updateExpiryNote`).
     private let expiryLayer = CATextLayer()
     /// Shown in the middle of the screen instead of a black one when the map or the network data is missing or can't
@@ -153,6 +157,7 @@ final class SubwayView: NSView {
             reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in MainActor.assumeIsolated { self?.applyReduceMotion() } }
+            pauseWhileDisplaySleeps()
         } else {
             NSLog("SubwayView: map_black.pdf not found in %@. Run the notebook's §8 export, then rebuild.",
                   SubwayView.resources.bundlePath)
@@ -448,6 +453,33 @@ final class SubwayView: NSView {
 
     deinit {
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+        for observer in displayObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+    }
+
+    /// Nothing is seen while the display sleeps, but macOS may leave the screensaver running until the Mac is woken
+    /// (measured on 2 November 2026: it kept updating at about 1% of a core with the display dark). So downloads and
+    /// updates pause when the display sleeps and resume when it wakes; the trains then catch up, as after any gap in
+    /// the data.
+    private func pauseWhileDisplaySleeps() {
+        let center = NSWorkspace.shared.notificationCenter
+        displayObservers = [
+            center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.feedSubscription != nil else { return }
+                    self.stop()
+                    self.pausedForDisplaySleep = true
+                    NSLog("SubwayView: display asleep, paused")
+                }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.pausedForDisplaySleep else { return }
+                    self.pausedForDisplaySleep = false
+                    NSLog("SubwayView: display awake, resuming")
+                    self.start()
+                }
+            },
+        ]
     }
 
     /// The Mac's Accessibility setting "Reduce motion", passed to the map panels (no breathing bullets).
@@ -468,6 +500,7 @@ final class SubwayView: NSView {
 
     /// Stops all work: no timers, no downloads (important for a screensaver: nothing may keep running).
     func stop() {
+        pausedForDisplaySleep = false  // stopped for good (a pause for display sleep sets it again just after)
         if let feedSubscription { FeedHub.shared.unsubscribe(feedSubscription) }
         feedSubscription = nil
         tickTimer?.invalidate()
