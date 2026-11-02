@@ -20,3 +20,6 @@ archive/
 
 # Xcode per-user state
 xcuserdata/
+
+# The private Python environment tools/setup.sh creates
+.venv/

@@ -96,6 +96,9 @@ final class SubwayView: NSView {
     private var reduceMotionObserver: NSObjectProtocol?
     /// A note when the bundled timetable is about to run out, or has (see `updateExpiryNote`).
     private let expiryLayer = CATextLayer()
+    /// Shown in the middle of the screen instead of a black one when the map or the network data is missing or can't
+    /// be read (see `problem`).
+    private let problemLayer = CATextLayer()
     private var liveTrips: [Trip] = []
     /// The trains shown this tick: live, plus scheduled ones on lines without live data (see `trains(now:)`).
     private var shownTrips: [Trip] = []
@@ -189,6 +192,34 @@ final class SubwayView: NSView {
         if allowsInteraction { addPickerButton() }
         if let document { documents[Theme.dark.mapResource] = document }
         applyTheme(force: true)
+        if let problem { showProblem(problem) }
+    }
+
+    /// What's wrong, if this copy can't show the map: the files the notebook exports are bundled in when the app or
+    /// screensaver is built, so a build made before running the notebook (or from a damaged export) has none.
+    private var problem: (title: String, detail: String)? {
+        let fix = "Run the setup again: in the mta-screensaver folder, run  zsh tools/setup.sh  in Terminal. It "
+            + "rebuilds the map and data and reinstalls the screensaver."
+        if document == nil {
+            return ("The subway map is missing", "This copy was built without the map. " + fix)
+        }
+        if network == nil {
+            return ("The subway data is missing or damaged", "This copy can't read its station and track data. " + fix)
+        }
+        return nil
+    }
+
+    private func showProblem(_ problem: (title: String, detail: String)) {
+        let text = NSMutableAttributedString(string: problem.title + "\n\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 22, weight: .semibold), .foregroundColor: NSColor.white])
+        text.append(NSAttributedString(string: problem.detail, attributes: [
+            .font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor(white: 0.8, alpha: 1)]))
+        problemLayer.string = text
+        problemLayer.isWrapped = true
+        problemLayer.alignmentMode = .center
+        problemLayer.zPosition = 20
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(problemLayer)
     }
 
     // ---- Appearance ----
@@ -636,6 +667,11 @@ final class SubwayView: NSView {
 
     override func layout() {
         super.layout()
+        if problemLayer.superlayer != nil {  // nothing to show but the explanation, in the middle
+            let width = min(bounds.width - 80, 560)
+            problemLayer.contentsScale = backingScale
+            problemLayer.frame = CGRect(x: (bounds.width - width) / 2, y: bounds.height / 2 - 90, width: width, height: 180)
+        }
         guard let document, let fullPanel, bounds.width > 0, bounds.height > 0 else { return }
         let w = bounds.width, h = bounds.height
         let mapAspect = document.bounds.width / document.bounds.height  // ≈ 0.84 (taller than wide)

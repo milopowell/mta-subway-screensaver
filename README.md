@@ -23,7 +23,7 @@ The Python side does the heavy, once-in-a-while work. The Swift side does only w
 | Light mode | Done: Dark, Light, Match the Mac, or Light by day (29 October 2026) |
 | Waiting trains as route bullets | Done: pointing the way they leave, breathing, also at the end of the line (30–31 October 2026) |
 | Scheduled service without live data | Done: from the start, after an outage, or for one feed; hands over to live trains when data returns (31 October 2026) |
-| Later | Port smooth motion back to the notebook; Windows version; iPhone and iPad (see below) |
+| Later | Windows version; iPhone and iPad (see below) |
 
 The notebook walkthrough has covered sections 1 and 2; section 3 is next.
 
@@ -210,6 +210,7 @@ mta-screensaver/
 ├── tools/
 │   ├── gen_xcodeproj.py       regenerates the Xcode project file
 │   ├── make_icons.swift       draws the app icons (preview app and sandbox)
+│   ├── setup.sh               one command from a fresh copy to an installed screensaver (Python, notebook, build)
 │   ├── install_apps.sh        builds the preview app and the sandbox and installs them in ~/Applications
 │   ├── install_saver.sh       builds the screensaver and installs it in ~/Library/Screen Savers
 │   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
@@ -240,33 +241,22 @@ Anyone can build this for their own personal use on their own Mac. The repositor
 What it needs:
 
 - macOS 14 (Sonoma) or later, Apple Silicon or Intel.
-- Xcode 16 or later, from the Mac App Store (the Command Line Tools alone are not enough). No Apple developer account: the build is signed for that Mac only. Xcode downloads the SwiftProtobuf package during the first build.
-- Python 3 with the packages in `requirements.txt`. Anaconda's base environment has most of them; add the rest with `pip install -r requirements.txt`.
-- An internet connection, to build and to run.
+- Xcode 16 or later, from the Mac App Store (the Command Line Tools alone are not enough). Open it once after installing. No Apple developer account: the build is signed for that Mac only.
+- An internet connection, to set up and to run.
 
-Steps, from the project folder:
-
-1. Install the Python packages.
+Then one command, from the project folder, does the rest (about 10 minutes the first time):
 
 ```bash
-pip install -r requirements.txt
+zsh tools/setup.sh
 ```
 
-2. Run the notebook (about 2 minutes). It downloads the schedule, the official map and the station list, and writes `export/`: the dark and light maps, `network.json` and `schedule.json`.
+It checks the Mac, sets up a private Python environment in `.venv` (nothing else on the Mac changes), runs the notebook to download the MTA's schedule, map and station list and draw the maps, and builds and installs the screensaver. Then it opens System Settings > Screen Saver: choose **Subway**, and **Options…** sets your stations, the magnification and the appearance. Add `--apps` to install the preview app and the sandbox too. If a step fails, it stops and says what went wrong and what to do (for example, that Xcode needs opening once, or that a download failed). Run it again at any time; steps already done go quickly.
 
-```bash
-jupyter nbconvert --to notebook --execute --inplace subway_pipeline.ipynb
-```
+Run it again after the MTA publishes a new schedule: the export's expires (currently on 15 May 2027), and from two weeks before, the screensaver shows a note saying so. The app keeps working after it, but new stopping patterns are unknown to it.
 
-3. Build and install the screensaver.
+If the screensaver or the preview app ever starts without its map or data (a build made before the notebook ran, or a damaged export), it shows what's wrong and this command instead of a black screen.
 
-```bash
-zsh tools/install_saver.sh
-```
-
-4. Choose **Subway** in System Settings > Screen Saver; **Options…** sets the stations, magnification and appearance.
-
-The preview app and the sandbox are optional; `zsh tools/install_apps.sh` installs both in `~/Applications` (see below). Homebrew and the protobuf tools are only needed to regenerate the feed decoder. The schedule in the export expires (currently on 15 May 2027). After that the app keeps working, but new stopping patterns are unknown to it, so repeat steps 2 and 3 once the MTA publishes a new schedule.
+**By hand**, the same steps are: `pip install -r requirements.txt` (Anaconda's base environment has most of the packages), run the notebook (`jupyter nbconvert --to notebook --execute --inplace subway_pipeline.ipynb`), then `zsh tools/install_saver.sh`, and `zsh tools/install_apps.sh` for the apps. Homebrew and the protobuf tools are only needed to regenerate the feed decoder.
 
 ### The notebook
 
@@ -423,7 +413,7 @@ These are the issues most likely to affect how smoothly the app runs, roughly in
 3. **Network and battery while the screensaver runs.** About 17 MB per hour and 1–2% of one core. That is fine while the Mac is plugged in. On battery, the app could poll less often or stop when the display sleeps.
 
    Memory was measured over 2 hours on 29 October 2026 (`test_saver --soak 7200`, with repeated screensaver stops and starts and a 45-minute internet outage, during which the time-lapse took over; the timetable does that now): the screensaver stayed at 25–34 MB with no upward trend (+0.3 MB per hour, within noise), and Apple's screensaver host running it at 83–94 MB. The preview app held at 61–63 MB in its default window and settled at about 100 MB in a larger one (bigger map images).
-4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner exists only in Swift so far.
+4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner, the timetable trains and the route bullets exist only in Swift, by design: the notebook places trains and checks the data, and the app animates them.
 
 
 ## Version control
@@ -434,8 +424,7 @@ The project is a public GitHub repository (github.com/milopowell/mta-subway-scre
    ```bash
    git config filter.strip-notebook-outputs.clean "$HOME/anaconda3/bin/jupyter nbconvert --ClearOutputPreprocessor.enabled=True --to=notebook --stdin --stdout --log-level=ERROR" && git config filter.strip-notebook-outputs.smudge cat
    ```
-2. Run `subway_pipeline.ipynb` top to bottom: it downloads the MTA files into `data/` and writes `export/`.
-3. Build the app or install the screensaver as above.
+2. Run `zsh tools/setup.sh` (or the notebook and install scripts by hand, as above): it downloads the MTA files into `data/`, writes `export/`, and installs the screensaver.
 
 The screensaver's thumbnail is local only, since it shows MTA artwork.
 
