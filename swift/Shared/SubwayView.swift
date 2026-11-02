@@ -93,6 +93,9 @@ final class SubwayView: NSView {
     // ---- Live state ----
     /// Each feed's last good download (see FeedCache): a feed that fails briefly keeps its trains on screen.
     private var feedCache: FeedCache?
+    private var reduceMotionObserver: NSObjectProtocol?
+    /// A note when the bundled timetable is about to run out, or has (see `updateExpiryNote`).
+    private let expiryLayer = CATextLayer()
     private var liveTrips: [Trip] = []
     /// The trains shown this tick: live, plus scheduled ones on lines without live data (see `trains(now:)`).
     private var shownTrips: [Trip] = []
@@ -142,6 +145,11 @@ final class SubwayView: NSView {
             layer?.insertSublayer(zoom.root, at: 1)
             fullPanel = full
             zoomPanel = zoom
+            applyReduceMotion()
+            // Follow the Accessibility setting when it changes.
+            reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.applyReduceMotion() } }
         } else {
             NSLog("SubwayView: map_black.pdf not found in %@. Run the notebook's §8 export, then rebuild.",
                   SubwayView.resources.bundlePath)
@@ -162,7 +170,7 @@ final class SubwayView: NSView {
         statusLayer.zPosition = 10
         layer?.addSublayer(statusLayer)
 
-        for note in [offlineLayer, modeLayer] {  // small notes in the top-right corner
+        for note in [offlineLayer, modeLayer, expiryLayer] {  // small notes in the top-right corner
             note.fontSize = 12
             note.foregroundColor = NSColor(white: 0.8, alpha: 1).cgColor
             note.backgroundColor = NSColor(white: 0, alpha: 0.7).cgColor
@@ -214,7 +222,7 @@ final class SubwayView: NSView {
         layer?.backgroundColor = wanted.background.cgColor
         statusLayer.foregroundColor = wanted.ink.cgColor
         statusLayer.backgroundColor = wanted.noteBackground.cgColor
-        for note in [offlineLayer, modeLayer] {
+        for note in [offlineLayer, modeLayer, expiryLayer] {
             note.foregroundColor = wanted.noteInk.cgColor
             note.backgroundColor = wanted.noteBackground.cgColor
         }
@@ -339,6 +347,31 @@ final class SubwayView: NSView {
             NSLog("SubwayView: holding previous data for %@", cache.failed.joined(separator: ", "))
         }
         updateOfflineNote()
+        updateExpiryNote(now: at)
+    }
+
+    /// The bundled timetable (the notebook's export) is valid until a date; after it, new stopping patterns are
+    /// unknown and offline service follows an old timetable. From two weeks before that date, a corner note says so,
+    /// with what to do: the screensaver can't refresh its own data.
+    private func updateExpiryNote(now: Double) {
+        guard let end = network?.meta.feedEndDate, end.count == 8,
+              let year = Int(end.prefix(4)), let month = Int(end.dropFirst(4).prefix(2)), let day = Int(end.suffix(2)),
+              let last = Calendar.current.date(from: DateComponents(year: year, month: month, day: day)) else { return }
+        let ends = last.addingTimeInterval(86_400)  // valid through its last day
+        let date = DateFormatter.localizedString(from: last, dateStyle: .medium, timeStyle: .none)
+        let text: String?
+        if now >= ends.timeIntervalSince1970 {
+            text = "Timetable out of date since \(date)  ·  run the setup again to refresh it"
+        } else if now >= ends.timeIntervalSince1970 - 14 * 86_400 {
+            text = "Timetable ends \(date)  ·  run the setup again to refresh it"
+        } else {
+            text = nil
+        }
+        expiryLayer.isHidden = text == nil
+        if let text, expiryLayer.string as? String != text {
+            expiryLayer.string = text
+            fitNote(expiryLayer)
+        }
     }
 
     private func updateOfflineNote() {
@@ -380,6 +413,16 @@ final class SubwayView: NSView {
         }
         offlineLayer.isHidden = false
         fitNote(offlineLayer)
+    }
+
+    deinit {
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+    }
+
+    /// The Mac's Accessibility setting "Reduce motion", passed to the map panels (no breathing bullets).
+    private func applyReduceMotion() {
+        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for panel in [fullPanel, zoomPanel].compactMap({ $0 }) { panel.reduceMotion = reduce }
     }
 
     /// Sizes a note to its text.
@@ -659,7 +702,7 @@ final class SubwayView: NSView {
         statusLayer.frame = CGRect(x: 8, y: 8, width: 560, height: 16)
         // Notes go in the top-right corner.
         let noteTop = h - 8
-        for (i, note) in [modeLayer, offlineLayer].enumerated() {
+        for (i, note) in [modeLayer, offlineLayer, expiryLayer].enumerated() {
             note.contentsScale = scale
             note.position = CGPoint(x: w - 12, y: noteTop - CGFloat(i) * 22)
         }

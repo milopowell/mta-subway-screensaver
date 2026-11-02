@@ -28,8 +28,22 @@ final class TrainLayers {
     var simple = false {
         didSet {
             guard simple != oldValue else { return }
-            for (key, layer) in layers { breathe(layer, looks[key] != .moving && bullets[key] != nil && !simple) }
+            for (key, layer) in layers { breathe(layer, breathes(key)) }
         }
+    }
+    /// The Mac's Accessibility setting "Reduce motion": waiting trains' bullets don't breathe. (Trains still glide
+    /// between stations: that motion is what the screensaver shows.)
+    var reduceMotion = false {
+        didSet {
+            guard reduceMotion != oldValue else { return }
+            for (key, layer) in layers { breathe(layer, breathes(key)) }
+        }
+    }
+
+    /// Whether a train's bullet breathes: a waiting or parked train shown as its bullet, unless in the time-lapse or
+    /// with Reduce motion on.
+    private func breathes(_ key: String) -> Bool {
+        looks[key] != .moving && bullets[key] != nil && !simple && !reduceMotion
     }
     /// Colors for the dots (dark or light map).
     var theme: Theme = .dark {
@@ -350,7 +364,7 @@ final class TrainLayers {
         layer.shadowOpacity = look == .moving ? theme.glowOpacity : 0
         layer.zPosition = look == .moving ? 2 : (look == .stopped ? 1 : 0)  // moving trains on top
         CATransaction.commit()
-        breathe(layer, look != .moving && bullets[key] != nil && !simple)
+        breathe(layer, breathes(key))
     }
 
     // ---- Breathing ----

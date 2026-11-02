@@ -46,6 +46,9 @@ enum FeedClient {
         }
     }
 
+    /// How every download identifies itself.
+    static let userAgent = "SubwayScreensaver/1.0 (+https://github.com/milopowell/mta-subway-screensaver)"
+
     /// The connection used for feed downloads: no caching (every download must be fresh, and a screensaver
     /// shouldn't fill a cache) and a 15 s timeout, so one slow feed can't hold up a round for long.
     private static let session: URLSession = {
@@ -53,6 +56,8 @@ enum FeedClient {
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.timeoutIntervalForRequest = 15
+        // Every request names the app, so the MTA can tell where the traffic comes from (and reach the project).
+        config.httpAdditionalHeaders = ["User-Agent": FeedClient.userAgent]
         return URLSession(configuration: config)
     }()
 
@@ -157,8 +162,14 @@ final class FeedHub {
 
     /// Seconds between downloads (the MTA updates the feeds about every 30 s).
     var pollInterval: TimeInterval = 30
-    /// Seconds before trying again after a download in which any feed failed.
+    /// Seconds before trying again after a download in which any feed failed. Repeated failures wait longer each time
+    /// (twice as long, up to `pollInterval` when some feeds still work, or `maxRetryInterval` when none do), so a Mac
+    /// without internet, or many Macs during an MTA outage, don't keep asking every few seconds. Lines without data
+    /// run from the timetable meanwhile.
     var retryInterval: TimeInterval = 10
+    var maxRetryInterval: TimeInterval = 120
+    /// Rounds in a row in which some feed failed.
+    private var failedRounds = 0
 
     private var handlers: [UUID: Handler] = [:]
     private var task: Task<Void, Never>?
@@ -184,6 +195,17 @@ final class FeedHub {
         }
     }
 
+    /// Seconds until the next download (see `retryInterval`).
+    func wait(succeeded: Int, of total: Int) -> TimeInterval {
+        guard succeeded < total else {
+            failedRounds = 0
+            return pollInterval
+        }
+        failedRounds += 1
+        let backoff = retryInterval * pow(2, Double(min(failedRounds - 1, 10)))
+        return min(backoff, succeeded == 0 ? maxRetryInterval : pollInterval)
+    }
+
     private func run(_ settings: SubwayNetwork.Settings) {
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -191,7 +213,7 @@ final class FeedHub {
                 guard let self, !Task.isCancelled else { return }
                 self.latest = (fresh, at)
                 for handler in self.handlers.values { handler(fresh, at) }
-                let wait = fresh.count == settings.feeds.count ? self.pollInterval : self.retryInterval
+                let wait = self.wait(succeeded: fresh.count, of: settings.feeds.count)
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
         }

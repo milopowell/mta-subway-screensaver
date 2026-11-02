@@ -53,8 +53,9 @@ final class SubwaySettings {
     /// Used instead of `defaults` by settings kept in memory only.
     private var inMemory: [String: Any] = [:]
     private static let homeStationsKey = "homeStations", layoutKey = "layout", magnificationKey = "magnification"
-    /// Used until the user picks: 79 St (1) and 81 St-Museum of Natural History (B, C).
-    static let defaultHomeStations = ["122", "A21"]
+    /// Used until the user picks: Times Sq-42 St (1, 2, 3), central and familiar, so a new screensaver opens on Midtown
+    /// with a useful next-train board rather than on someone else's neighborhood.
+    static let defaultHomeStations = ["127"]
     /// Most home stations: the next-train board has room for four (two trains each way at each).
     static let maxHomeStations = 4
     /// Magnification choices, as multiples of the whole map fitted to the screen.

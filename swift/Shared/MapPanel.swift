@@ -83,6 +83,11 @@ final class MapPanel {
         get { trains.simple }
         set { trains.simple = newValue }
     }
+    /// The Mac's "Reduce motion" setting (TrainLayers.reduceMotion).
+    var reduceMotion: Bool {
+        get { trains.reduceMotion }
+        set { trains.reduceMotion = newValue }
+    }
 
     /// Map units → this panel's points (both with the origin at the bottom-left).
     func toView(_ p: CGPoint) -> CGPoint {
