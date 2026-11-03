@@ -156,7 +156,7 @@ The maps are redrawn from the official PDF's own drawing instructions (`mtamap/p
 - **The text position moves on past each piece of text,** as in any PDF viewer. So an icon drawn after a station name ("Dongan Hills", then the accessibility icon) lands after it, not on its first letter.
 - **Land is everything white drawn before the parks,** however small or narrow. Roosevelt Island and the small islands in the harbor and Jamaica Bay are dark like the rest of the land on the dark map, and off-white on the light map.
 
-On 31 October 2026, a comparison of the light map with the official PDF found no 60 × 60 unit area differing by more than about 2% (blurred, so font substitution barely counts). That leaves out the border, the legend and the title, which are dropped on purpose.
+On 31 October 2026, a comparison of the light map with the official PDF found no 60 × 60 unit area differing by more than about 2% (blurred, so font substitution barely counts). That leaves out the border, the legend and the title bar, which are dropped on purpose. The title bar's black background reaches 29 units below the top of the exported page, so everything drawn from its bottom edge up is left out (`TITLE_BAR` in `mtamap/style.py`); no map content reaches that high.
 
 ### Timing accuracy
 
@@ -164,15 +164,15 @@ On 31 October 2026, a comparison of the light map with the official PDF found no
 
 While a train stands at a station, some lines (the A, C and E feed, for example) keep moving its reported arrival forward to the present. The last reported arrival is therefore really the departure, and it must not be used as the arrival.
 
-Results from 3 minutes on 28 October 2026, afternoon, at the earlier cruise speed of 2.5 (glides of about 13 seconds). At 1.5 the arrivals are unchanged, since a dot always aims for the predicted arrival; departures are about 12 seconds closer to real.
+Results from 3 minutes on 2 November 2026, around midday, at the current cruise speed of 1.5 and with the motion fixes of 31 October (403 arrivals, 146 after catch-up glides, 441 departures matched to the real trains):
 
 | Measure | Median | Middle 80% | Within 30 s | Within 60 s |
 |---|---|---|---|---|
-| Dot reaches a station vs the real train | 3 s late | 25 s early to 32 s late | 79% | 95% |
-| Dot reaches a station after a catch-up glide | 21 s late | 14 s early to 40 s late | 73% | 99% |
-| Dot leaves a station vs the real train | 42 s late | 29 s early to 94 s late | 31% | 66% |
+| Dot reaches a station vs the real train | 2 s late | 31 s early to 40 s late | 73% | 94% |
+| Dot reaches a station after a catch-up glide | 17 s late | 4 s early to 50 s late | 62% | 95% |
+| Dot leaves a station vs the real train | 42 s late | 34 s early to 96 s late | 31% | 61% |
 
-The dot arrives exactly when the MTA's prediction said it would (0 s difference in every case). All of the arrival error is the error in the MTA's own prediction at the moment the glide began. Departures are late by design: the dot waits at the station and then travels about four times faster than the real train (six at the earlier speed), so it leaves later and arrives on time. In the middle of a hop, the dot is usually still at the previous station or just leaving it while the real train is already on its way.
+The dot arrives when the MTA's prediction said it would: 0 s difference in the median and the middle 80%, and at most 36 s late in a few cases. Nearly all of the arrival error is the error in the MTA's own prediction at the moment the glide began. (On 28 October, at the earlier speed of 2.5 and with a different afternoon's predictions, the figures were similar: arrivals 3 s late in the median, 79% within 30 s.) Departures are late by design: the dot waits at the station and then travels about four times faster than the real train, so it leaves later and arrives on time. In the middle of a hop, the dot is usually still at the previous station or just leaving it while the real train is already on its way.
 
 
 ## Folder layout
@@ -327,6 +327,8 @@ zsh ~/mta-screensaver/tools/install_saver.sh
 ```
 
 This builds `SubwaySaver.saver` and copies it to `~/Library/Screen Savers`, then restarts macOS's screensaver host so the new version loads. Choose **Subway** in System Settings > Screen Saver. The screensaver always shows the close-up: the magnified map filling the screen, centered on your stations. Its **Options…** sheet sets those stations (up to four), the magnification, the appearance and the train board; the screensaver keeps its own settings, separate from the preview app's. Run the script again after any change (including a re-run of the notebook's export).
+
+**Burn-in protection.** A screensaver may show for hours, and OLED displays can keep a faint ghost of a picture left unchanged for a long time. So every 4 minutes the whole screensaver view glides, over 20 seconds, to the next of 8 positions on a circle 6 points across: the map, the trains, the board and the notes together. It's far too slow to notice, and the map is drawn 6 points larger than the screen on every side, so no gap opens at an edge. It costs almost nothing: a few points of movement at about 10 frames a second, once every 4 minutes. The preview app doesn't drift (`--drift STEP` renders a snapshot at a drift position, for testing).
 
 The screensaver shares one feed download among all its views (one per display, plus the thumbnail in System Settings), and stops all downloads and timers when macOS announces the screensaver is ending (`com.apple.screensaver.willstop`), since recent macOS does not always call `stopAnimation()`. While the display sleeps it pauses downloads and updates, and resumes when it wakes.
 

@@ -68,6 +68,7 @@ Preview app options (run the executable inside the app directly):
 - train data for those two: `--live` (download now), or `--feeds-dir DIR --now UNIXTIME` (saved feeds `DIR/<feed>.pb`)
 - `--plan-report [--seconds 90]`: run the motion planner on live data and report how trains move
 - `--time-lapse`: force the time-lapse; `--time-lapse-after S` starts it after S seconds of history instead of 5 minutes
+- `--drift STEP`: a snapshot with the screensaver's burn-in protection on, at drift position STEP (0 to 7)
 - `--offline`: no live data from the start, so every line runs from the timetable (in the window, or in `--snapshot` and `--dump-placements`, where it also supplies the train data)
 - `--handoff-report [--seconds 90]`: start the motion planner on the timetable, switch it to live data, and report how the scheduled trains hand over to their live twins
 - `--path-report out`: check the track every hop follows; writes `out.png`

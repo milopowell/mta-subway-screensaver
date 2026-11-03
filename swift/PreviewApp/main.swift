@@ -31,6 +31,7 @@ import AppKit
 //                                        (in the window, or in --plan-report; in a snapshot, failed for
 //                                        --outage-age S seconds, 120 unless given: over 300, their lines run
 //                                        from the timetable)
+//   --drift STEP                         a snapshot with burn-in protection on, at drift position STEP (0–7)
 //   --offline                            no live data from the start: every line runs from the timetable
 //                                        (in the window, or in a snapshot)
 
@@ -735,6 +736,10 @@ if wantsSnapshot != nil || wantsDump != nil {
         if let age = value(after: "--outage-age").flatMap(Double.init) { view.simulatedOutageAge = age }
     }
     view.simulatedOfflineStart = arguments.contains("--offline")
+    if let step = value(after: "--drift").flatMap(Int.init) {  // burn-in protection at drift position 0–7
+        view.driftsAgainstBurnIn = true
+        view.setDriftPosition(step)
+    }
 
     let data = commandLineTrips(network: hooks.network)  // nil = no trains (map only)
     var placements: [(trip: Trip, placement: Placement)] = []

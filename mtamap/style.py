@@ -12,7 +12,9 @@ from shapely.ops import unary_union
 
 from . import pdfdraw
 
-TITLE_Y = 1978.0  # everything above this is the title bar
+TITLE_Y = 1978.0  # the top of the exported map page (map units from the bottom)
+TITLE_BAR = 1949.0  # the title bar's black background starts here, below the page top: everything drawn from here up
+                    # (the bar and the MTA logo) is left out; no map content reaches above 1944
 LEGEND = (1010.0, 1489.0)  # x >= and y >= this is the legend / info panel
 
 # Water and parks, as dark tints of the paper map's blue and green: just visible on black, so the labels
@@ -85,7 +87,7 @@ def is_round_circle(p):
 
 
 def cropped(lo, hi):
-    return lo[1] >= TITLE_Y - 1 or (lo[0] >= LEGEND[0] and lo[1] >= LEGEND[1])
+    return lo[1] >= TITLE_BAR - 1 or (lo[0] >= LEGEND[0] and lo[1] >= LEGEND[1])
 
 
 def prepare(drawing):
@@ -245,7 +247,7 @@ def style_text_light(t, bullets):
     """Label color for the light theme: as printed (black when the PDF gives none)."""
     if not clean_text(t["text"]).strip() or t.get("outlined"):
         return None
-    if t["y"] >= TITLE_Y - 1 or (t["x"] >= LEGEND[0] and t["y"] >= LEGEND[1]) or (t["y"] > TITLE_Y - 20 and t["size"] > 15):
+    if t["y"] >= TITLE_BAR - 1 or (t["x"] >= LEGEND[0] and t["y"] >= LEGEND[1]) or (t["y"] > TITLE_Y - 20 and t["size"] > 15):
         return None
     c = t["color"]
     return (0, 0, 0) if c is None else tuple(min(1, max(0, x)) for x in c[:3])
@@ -254,7 +256,7 @@ def style_text_light(t, bullets):
 def style_text(t, bullets):
     if not clean_text(t["text"]).strip() or t.get("outlined"):
         return None
-    if t["y"] >= TITLE_Y - 1 or (t["x"] >= LEGEND[0] and t["y"] >= LEGEND[1]) or (t["y"] > TITLE_Y - 20 and t["size"] > 15):
+    if t["y"] >= TITLE_BAR - 1 or (t["x"] >= LEGEND[0] and t["y"] >= LEGEND[1]) or (t["y"] > TITLE_Y - 20 and t["size"] > 15):
         return None
     c = t["color"]
     if c is None:

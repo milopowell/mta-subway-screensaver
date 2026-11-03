@@ -21,6 +21,7 @@ final class SubwaySaverView: ScreenSaverView {
         settings = SubwaySettings(defaults: defaults)
         settings.layout = .closeUp  // the screensaver always shows the magnified map
         content = SubwayView(frame: NSRect(origin: .zero, size: frame.size), settings: settings)
+        content.driftsAgainstBurnIn = true  // a screensaver may show for hours: keep nothing on the same pixels
         super.init(frame: frame, isPreview: isPreview)
         content.autoresizingMask = [.width, .height]  // follow the screen's size
         addSubview(content)

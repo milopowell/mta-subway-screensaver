@@ -53,6 +53,8 @@ final class SubwayView: NSView {
     }
     /// The magnified map is at least this many map units wide (a station circle is 8.2), for context.
     var zoomMinWidth: CGFloat = 300
+    /// Burn-in protection, for the screensaver: the whole view moves a few points every few minutes (see `drift`).
+    var driftsAgainstBurnIn = false { didSet { needsLayout = true } }
     /// Show the status line (time, counts, data age, CPU): useful in the preview app; off in the screensaver.
     var showsStatus = false { didSet { statusLayer.isHidden = !showsStatus } }
 
@@ -98,6 +100,13 @@ final class SubwayView: NSView {
     private var displayObservers: [NSObjectProtocol] = []
     /// True while downloads and updates are paused because the display is asleep; they resume when it wakes.
     private var pausedForDisplaySleep = false
+    /// Burn-in protection: how far the view moves from its home position (points), how often it moves on to the next
+    /// position, and how long each move takes. The positions go round a small circle in 8 steps.
+    private static let driftRadius: CGFloat = 6
+    private static let driftEvery: Double = 240
+    private static let driftSeconds: Double = 20
+    private var driftStep = 0
+    private var driftedAt = Date().timeIntervalSince1970
     /// A note when the bundled timetable is about to run out, or has (see `updateExpiryNote`).
     private let expiryLayer = CATextLayer()
     /// Shown in the middle of the screen instead of a black one when the map or the network data is missing or can't
@@ -482,6 +491,44 @@ final class SubwayView: NSView {
         ]
     }
 
+    /// Burn-in protection (`driftsAgainstBurnIn`, the screensaver): every `driftEvery` seconds the whole view glides to
+    /// the next of 8 positions on a circle `driftRadius` points across, over `driftSeconds`. The map, the trains, the
+    /// board and the notes all move together, so nothing bright stays on the same pixels for hours (OLED displays can
+    /// keep a faint ghost of a picture shown unchanged for a long time). Far too slow to notice, and cheap: a few
+    /// points over 20 seconds at about 10 frames a second, once every 4 minutes. Only in the close-up, where the map
+    /// fills the screen and is drawn a little larger than it (see `layout`), so no gap opens at an edge.
+    private func drift(now: Double) {
+        driftedAt = now
+        guard driftsAgainstBurnIn, settings.layout == .closeUp, let layer else { return }
+        driftStep = (driftStep + 1) % 8
+        let to = driftOffset(driftStep)
+        let move = CABasicAnimation(keyPath: "sublayerTransform")
+        move.fromValue = layer.presentation()?.sublayerTransform ?? layer.sublayerTransform
+        move.toValue = to
+        move.duration = Self.driftSeconds
+        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        move.preferredFrameRateRange = CAFrameRateRange(minimum: 5, maximum: 15, preferred: 10)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.sublayerTransform = to
+        CATransaction.commit()
+        layer.add(move, forKey: "drift")
+    }
+
+    /// The view's move for drift position `step` (of 8 round the circle).
+    private func driftOffset(_ step: Int) -> CATransform3D {
+        let angle = Double(step) * .pi / 4
+        return CATransform3DMakeTranslation(Self.driftRadius * cos(angle), Self.driftRadius * sin(angle), 0)
+    }
+
+    /// For testing: jump to drift position `step` at once (snapshots show where everything is at each position).
+    func setDriftPosition(_ step: Int) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.sublayerTransform = driftOffset(step)
+        CATransaction.commit()
+    }
+
     /// The Mac's Accessibility setting "Reduce motion", passed to the map panels (no breathing bullets).
     private func applyReduceMotion() {
         let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -579,6 +626,7 @@ final class SubwayView: NSView {
             boardUpdatedAt = now
         }
         if settings.appearance == .timeOfDay { applyTheme() }  // switches at 7 AM and 7 PM
+        if animated, now - driftedAt >= Self.driftEvery { drift(now: now) }
         if showsStatus { updateStatus() }
         if modeChanged, tickTimer != nil { startTicking(updateNow: false) }  // the tick rate follows the mode
     }
@@ -728,8 +776,11 @@ final class SubwayView: NSView {
             // stations, between 2× and 4×), centered on them.
             fullPanel.root.isHidden = true
             zoomPanel?.root.isHidden = false
-            zoomPanel?.layout(frame: bounds, showing: magnifiedRegion(size: bounds.size, document: document, autoRange: 2...4),
-                              scale: scale)
+            // With burn-in protection the map is drawn a little larger than the screen, so moving the view never opens
+            // a gap at an edge.
+            let mapFrame = driftsAgainstBurnIn ? bounds.insetBy(dx: -Self.driftRadius, dy: -Self.driftRadius) : bounds
+            zoomPanel?.layout(frame: mapFrame, showing: magnifiedRegion(size: mapFrame.size, document: document,
+                                                                        autoRange: 2...4), scale: scale)
 
             let margin: CGFloat = 12
 
