@@ -1,7 +1,7 @@
 import AppKit
 
 /// Opens one window showing SubwayView, sized like your screen, with a minimal menu (About, Quit; View: layouts,
-/// close-up zoom, Full Screen; Appearance; Debug).
+/// close-up zoom, Show Service Alerts, Full Screen; Appearance; Debug).
 final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
     private let startFullScreen: Bool
     private var window: NSWindow?
@@ -78,6 +78,13 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         view.settingsChanged()
     }
 
+    @objc private func toggleAlerts(_ item: NSMenuItem) {
+        guard let view = subwayView else { return }
+        view.settings.showsAlerts.toggle()
+        item.state = view.settings.showsAlerts ? .on : .off
+        view.settingsChanged()
+    }
+
     @objc private func chooseTint(_ item: NSMenuItem) {
         guard let view = subwayView else { return }
         view.settings.boardTint = Double(item.tag) / 100
@@ -112,6 +119,10 @@ final class PreviewAppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Close-up", action: #selector(showCloseUp), keyEquivalent: "2").target = self
         viewMenu.addItem(withTitle: "Zoom In", action: #selector(zoomIn), keyEquivalent: "=").target = self
         viewMenu.addItem(withTitle: "Zoom Out", action: #selector(zoomOut), keyEquivalent: "-").target = self
+        viewMenu.addItem(.separator())
+        let alerts = viewMenu.addItem(withTitle: "Show Service Alerts", action: #selector(toggleAlerts(_:)), keyEquivalent: "")
+        alerts.target = self
+        alerts.state = subwayView?.settings.showsAlerts == false ? .off : .on
         viewMenu.addItem(.separator())
         let fullScreen = viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
                                           keyEquivalent: "f")

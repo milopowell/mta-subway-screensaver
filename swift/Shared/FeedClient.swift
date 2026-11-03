@@ -193,6 +193,8 @@ final class FeedHub {
     var alertsEvery: TimeInterval = 300
     var alertsRetry: TimeInterval = 60
     var alertsKeepFor: TimeInterval = 1800
+    /// False when the board doesn't show alerts (SubwaySettings.showsAlerts): the alerts feed isn't downloaded.
+    var fetchesAlerts = true
     private var alertsFetchedAt = -Double.infinity, alertsTriedAt = -Double.infinity
 
     private var handlers: [UUID: Handler] = [:]
@@ -240,7 +242,7 @@ final class FeedHub {
                 for handler in self.handlers.values { handler(fresh, at) }  // trains first: alerts can wait
                 // Alerts every `alertsEvery` seconds; after a failed try, again a minute later.
                 let alertsFailed = self.alertsTriedAt > self.alertsFetchedAt
-                if at - self.alertsTriedAt >= (alertsFailed ? self.alertsRetry : self.alertsEvery) {
+                if self.fetchesAlerts, at - self.alertsTriedAt >= (alertsFailed ? self.alertsRetry : self.alertsEvery) {
                     self.alertsTriedAt = at
                     if let alerts = await FeedClient.fetchAlerts(), !Task.isCancelled {
                         self.alerts = alerts

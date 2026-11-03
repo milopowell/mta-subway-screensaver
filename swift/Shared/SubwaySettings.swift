@@ -111,6 +111,12 @@ final class SubwaySettings {
         set { set(newValue, "boardBackdrops") }
     }
 
+    /// Whether the next-train board lists service alerts for the home stations' lines (delays, skipped stops, reroutes).
+    var showsAlerts: Bool {
+        get { value("showsAlerts") as? Bool ?? true }
+        set { set(newValue, "showsAlerts") }
+    }
+
     /// How strongly the glass is tinted with the theme's background color: 0 = untinted, 1 = almost solid.
     var boardTint: Double {
         get { value("boardTint") as? Double ?? 0.3 }

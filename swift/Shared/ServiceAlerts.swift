@@ -17,14 +17,19 @@ struct ServiceAlert {
         periods.isEmpty || periods.contains { $0.start <= now && now <= $0.end }
     }
 
-    /// Whether the board should list it for `station`: active, about one of the station's routes, and either about the
-    /// whole line or naming this station (or another part of its complex: Times Sq-42 St for the 7 at Times Sq).
-    func isRelevant(to station: String, network: SubwayNetwork, now: Double) -> Bool {
+    /// Whether the board should list it for `station`: active, and either naming this station (or another part of its
+    /// complex: Times Sq-42 St for the 7 at Times Sq) for one of its routes, or about a whole line serving it now.
+    ///
+    /// `servingNow` is the routes stopping there at this time of day (from the timetable and the trains coming), nil if
+    /// unknown. Without it, a station's part-time routes would bring in alerts about far-off parts of their lines: a
+    /// Bronx delay on the 2 at 79 St, which the 2 serves only late at night.
+    func isRelevant(to station: String, network: SubwayNetwork, now: Double, servingNow: Set<String>? = nil) -> Bool {
         guard isActive(at: now), let info = network.stations[station], !routes.isDisjoint(with: info.routes) else {
             return false
         }
+        if stations.isEmpty { return servingNow.map { !routes.isDisjoint(with: $0) } ?? true }
         // A platform stands for its station (network.platforms), and any station of the complex counts.
-        return stations.isEmpty || stations.contains { network.stations[network.platforms[$0] ?? $0]?.complex == info.complex }
+        return stations.contains { network.stations[network.platforms[$0] ?? $0]?.complex == info.complex }
     }
 
     /// The alerts in one download of the feed.

@@ -1,8 +1,8 @@
 import AppKit
 
 /// The appearance settings for the screensaver's Options sheet: dark or light, and how the next-train board is drawn
-/// (glass or solid, and the glass's tint). The preview app has the same choices in its Appearance menu. A change is
-/// saved at once and reported through `onChange`.
+/// (glass or solid, and the glass's tint), and whether it lists service alerts. The preview app has the same choices in
+/// its Appearance and View menus. A change is saved at once and reported through `onChange`.
 final class AppearanceOptionsView: NSStackView {
     private let settings: SubwaySettings
     private let onChange: () -> Void
@@ -11,6 +11,8 @@ final class AppearanceOptionsView: NSStackView {
     private let tintSlider = NSSlider(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
     private let tintLabel = NSTextField(labelWithString: "")
     private let backdropsBox = NSButton(checkboxWithTitle: "Backdrops behind the text (clear glass)", target: nil, action: nil)
+    private let alertsBox = NSButton(checkboxWithTitle: "Show service alerts (delays, skipped stops, reroutes)",
+                                     target: nil, action: nil)
 
     init(settings: SubwaySettings, onChange: @escaping () -> Void) {
         self.settings = settings
@@ -44,6 +46,10 @@ final class AppearanceOptionsView: NSStackView {
         backdropsBox.target = self
         backdropsBox.action = #selector(backdropsChanged)
         addArrangedSubview(row("", backdropsBox))
+        alertsBox.state = settings.showsAlerts ? .on : .off
+        alertsBox.target = self
+        alertsBox.action = #selector(alertsChanged)
+        addArrangedSubview(row("Alerts", alertsBox))
         updateTint()
     }
 
@@ -66,6 +72,11 @@ final class AppearanceOptionsView: NSStackView {
 
     @objc private func backdropsChanged() {
         settings.boardBackdrops = backdropsBox.state == .on
+        onChange()
+    }
+
+    @objc private func alertsChanged() {
+        settings.showsAlerts = alertsBox.state == .on
         onChange()
     }
 

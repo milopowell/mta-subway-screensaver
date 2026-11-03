@@ -103,15 +103,7 @@ final class Schedule {
     func trips(at now: Double, feeds: Set<String>, parkWindow: Double) -> [Trip] {
         guard !feeds.isEmpty else { return [] }
         var trips: [Trip] = []
-        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: now))
-        // Yesterday's service too: its late trips run past midnight (GTFS times beyond 24:00).
-        for dayOffset in [-1, 0] {
-            guard let midnight = calendar.date(byAdding: .day, value: dayOffset, to: today) else { continue }
-            let running = services(on: midnight)
-            // GTFS times count from noon minus 12 hours: midnight, except on the days the clocks change, when it's an
-            // hour off (on 1 November 2026, 1 AM).
-            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: midnight) ?? midnight.addingTimeInterval(43_200)
-            let base = noon.timeIntervalSince1970 - 43_200
+        for (running, base) in days(around: now) {
             for group in groups where running.contains(group.service) && feeds.contains(group.feed) {
                 let first = group.depart[0], last = group.arrive[group.arrive.count - 1]
                 for code in group.codes {
@@ -122,6 +114,42 @@ final class Schedule {
             }
         }
         return trips
+    }
+
+    /// The routes the timetable has stopping at `station` (a station ID like "122") between `from` and `to`: what
+    /// regularly serves it at this time of day, so "79 St" is a 1 station by day and a 1 and 2 station late at night.
+    func routes(stoppingAt station: String, from: Double, to: Double) -> Set<String> {
+        var routes = Set<String>(), seen = Set<Double>()
+        for (running, base) in days(around: from) + days(around: to) where seen.insert(base).inserted {
+            for (g, k) in stopsByStation[station] ?? [] {
+                let group = groups[g]
+                guard !routes.contains(group.route), running.contains(group.service) else { continue }
+                let at = base + group.arrive[k]
+                if group.codes.contains(where: { (from...to).contains(at + Double($0) * 0.6) }) { routes.insert(group.route) }
+            }
+        }
+        return routes
+    }
+
+    /// Where each station is in the groups: station ID → (group, stop index), for both its platforms.
+    private lazy var stopsByStation: [String: [(Int, Int)]] = {
+        var index: [String: [(Int, Int)]] = [:]
+        for (g, group) in groups.enumerated() {
+            for (k, stop) in group.stops.enumerated() { index[String(stop.dropLast()), default: []].append((g, k)) }
+        }
+        return index
+    }()
+
+    /// The services running on the timetable days that include `now`: yesterday's (its late trips run past midnight,
+    /// with GTFS times beyond 24:00) and today's, each with the unix time its GTFS times count from: noon minus 12
+    /// hours, which is midnight except on the days the clocks change, when it's an hour off (on 1 November 2026, 1 AM).
+    private func days(around now: Double) -> [(running: Set<String>, base: Double)] {
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: now))
+        return [-1, 0].compactMap { offset in
+            guard let midnight = calendar.date(byAdding: .day, value: offset, to: today) else { return nil }
+            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: midnight) ?? midnight.addingTimeInterval(43_200)
+            return (services(on: midnight), noon.timeIntervalSince1970 - 43_200)
+        }
     }
 
     /// One scheduled train at `now`: standing at a platform while it dwells there, otherwise heading for its next

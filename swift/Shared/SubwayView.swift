@@ -119,6 +119,9 @@ final class SubwayView: NSView {
     private var shownTrips: [Trip] = []
     /// The timetable's trains for those lines, as last built (see `trains(now:)`).
     private var scheduledTrips: (feeds: Set<String>, at: Double, trips: [Trip])?
+    /// Per home station: the routes the timetable has stopping there within half an hour of `at` (for its alerts),
+    /// looked up again every 5 minutes.
+    private var scheduledRoutes: [String: (at: Double, routes: Set<String>)] = [:]
     private var fetchedAt: Double = 0
     private var tickTimer: Timer?
     /// This view's subscription to the shared downloads (FeedHub), while started.
@@ -289,7 +292,9 @@ final class SubwayView: NSView {
     /// Call after changing the appearance in the settings.
     func settingsChanged() {
         applyTheme()
+        FeedHub.shared.fetchesAlerts = settings.showsAlerts
         if let boardPlacement { placeBoard(boardPlacement.frame, closeUp: boardPlacement.closeUp) }
+        if network != nil { updateBoards(now: Date().timeIntervalSince1970) }  // alerts turned on or off
     }
 
     // ---- The board's glass ----
@@ -382,6 +387,7 @@ final class SubwayView: NSView {
     /// Starts receiving feed downloads (shared with any other SubwayView, see FeedHub) and moving trains.
     func start() {
         guard let network, feedSubscription == nil else { return }
+        FeedHub.shared.fetchesAlerts = settings.showsAlerts
         var round = 0
         feedSubscription = FeedHub.shared.subscribe(settings: network.settings) { [weak self] fresh, at in
             guard let self else { return }
@@ -681,10 +687,19 @@ final class SubwayView: NSView {
     private func updateBoards(now: Double) {
         guard let network else { return }
         nextTrains.time = Date(timeIntervalSince1970: now)
-        let alerts = alertsOverride ?? FeedHub.shared.alerts
-        let boards = settings.homeStations.compactMap {
-            StationBoard.make(station: $0, trips: shownTrips, network: network, now: now,
-                              perDirection: nextTrains.perDirection, alerts: alerts)
+        let alerts = settings.showsAlerts ? alertsOverride ?? FeedHub.shared.alerts : []
+        let boards = settings.homeStations.compactMap { station -> StationBoard? in
+            var scheduled: Set<String>?
+            if let schedule, !alerts.isEmpty {
+                if let cached = scheduledRoutes[station], abs(now - cached.at) < 300 {
+                    scheduled = cached.routes
+                } else {
+                    scheduled = schedule.routes(stoppingAt: station, from: now - 1800, to: now + 1800)
+                    scheduledRoutes[station] = (now, scheduled!)
+                }
+            }
+            return StationBoard.make(station: station, trips: shownTrips, network: network, now: now,
+                                     perDirection: nextTrains.perDirection, alerts: alerts, scheduled: scheduled)
         }
         // New or cleared alerts change the board's height: lay it out again.
         let alertsChanged = boards.map(\.alerts) != nextTrains.boards.map(\.alerts)
@@ -756,16 +771,22 @@ final class SubwayView: NSView {
     }
 
     /// The next-train board's height for this width: as tall as its content, with 3 trains each way for one
-    /// station and 2 for more, fewer if that would be taller than `maxHeight`. Sets the board's row count.
+    /// station and 2 for more, fewer if that would be taller than `maxHeight`, and if even one each way is too tall,
+    /// long service alerts cut short (down to two lines each). Sets the board's row count and alert line limit.
     private func boardHeight(width: CGFloat, maxHeight: CGFloat) -> CGFloat {
         let stations = settings.homeStations.filter { network?.stations[$0] != nil }.count
         var perDirection = stations <= 1 ? 3 : 2
-        let alerts = nextTrains.alertLines(width: width)
+        nextTrains.alertLineLimit = NextTrainsView.alertLinesMost
+        var alerts = nextTrains.alertLines(width: width)
         func needs(_ rows: Int) -> CGFloat {
             NextTrainsView.height(stations: stations, perDirection: rows, width: width, alertLines: alerts.lines,
                                   alertStations: alerts.stations)
         }
         while perDirection > 1, needs(perDirection) > maxHeight { perDirection -= 1 }
+        while nextTrains.alertLineLimit > 2, needs(perDirection) > maxHeight {
+            nextTrains.alertLineLimit -= 1
+            alerts = nextTrains.alertLines(width: width)
+        }
         nextTrains.perDirection = perDirection
         return min(needs(perDirection), maxHeight).rounded()
     }

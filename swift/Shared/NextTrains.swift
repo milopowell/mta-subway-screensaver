@@ -25,8 +25,10 @@ struct StationBoard {
     /// - Parameters:
     ///   - perDirection: how many trains to list each way.
     ///   - now: unix time "now".
+    ///   - scheduled: the routes the timetable has stopping here around now (nil without a timetable); with the trains
+    ///     coming, which whole-line alerts apply (ServiceAlert.isRelevant).
     static func make(station: String, trips: [Trip], network: SubwayNetwork, now: Double,
-                     perDirection: Int = 3, alerts: [ServiceAlert] = []) -> StationBoard? {
+                     perDirection: Int = 3, alerts: [ServiceAlert] = [], scheduled: Set<String>? = nil) -> StationBoard? {
         guard let info = network.stations[station] else { return nil }
         func arrivals(platform: String) -> [Arrival] {
             var out: [Arrival] = []
@@ -41,7 +43,8 @@ struct StationBoard {
         }
         var board = StationBoard(station: station, name: info.name, northLabel: info.northLabel, southLabel: info.southLabel,
                                  north: arrivals(platform: station + "N"), south: arrivals(platform: station + "S"))
-        let relevant = alerts.filter { $0.isRelevant(to: station, network: network, now: now) }
+        let serving = scheduled?.union(board.routesNow)
+        let relevant = alerts.filter { $0.isRelevant(to: station, network: network, now: now, servingNow: serving) }
         let ordered = relevant.filter { !$0.stations.isEmpty } + relevant.filter { $0.stations.isEmpty }
         var texts: [String] = []
         for alert in ordered where !texts.contains(alert.text) { texts.append(alert.text) }  // the same notice, once
@@ -77,6 +80,11 @@ final class NextTrainsView: NSView {
     }()
     /// Trains listed each way at each station (set by SubwayView's layout).
     var perDirection = 2 { didSet { needsDisplay = true } }
+    /// Most lines one service alert may take; longer ones end in "…". SubwayView lowers it only when the board would
+    /// otherwise be taller than its room.
+    var alertLineLimit = NextTrainsView.alertLinesMost { didSet { needsDisplay = true } }
+    /// Enough for the longest alerts the MTA writes (about 160 characters) on a narrow board.
+    static let alertLinesMost = 6
     /// route → (background color, letter color), from network.json.
     var routeColors: [String: (NSColor, NSColor)] = [:]
 
@@ -109,8 +117,8 @@ final class NextTrainsView: NSView {
         return (headerRows + CGFloat(stations) * station + CGFloat(stations - 1) * stationGap + alerts + bottomMargin) * unit
     }
 
-    /// How many lines the boards' service alerts take at this width (each alert wraps to at most two lines; "+N more"
-    /// takes one), and over how many stations.
+    /// How many lines the boards' service alerts take at this width (each alert wraps to at most `alertLineLimit`
+    /// lines; "+N more" takes one), and over how many stations.
     func alertLines(width: CGFloat) -> (lines: Int, stations: Int) {
         let unit = NextTrainsView.unit(forWidth: width)
         var lines = 0, stations = 0
@@ -261,15 +269,15 @@ final class NextTrainsView: NSView {
         return out
     }
 
-    /// Lines an alert takes at this width: as many as it wraps to, up to two (longer ones end in "…").
+    /// Lines an alert takes at this width: as many as it wraps to, up to `alertLineLimit` (longer ones end in "…").
     private func alertLineCount(_ alert: String, unit: CGFloat, width: CGFloat) -> Int {
         let available = width - 2 * unit - unit * NextTrainsView.alertIndent
         let height = alertText(alert, unit: unit).boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude),
                                                                options: [.usesLineFragmentOrigin]).height
-        return min(max(Int((height / (unit * NextTrainsView.alertLine)).rounded(.up)), 1), 2)
+        return min(max(Int((height / (unit * NextTrainsView.alertLine)).rounded(.up)), 1), alertLineLimit)
     }
 
-    /// Draws one alert under a station's name: a small warning sign, then the text (at most two lines). Returns the
+    /// Draws one alert under a station's name: a small warning sign, then the text (`alertLineCount` lines). Returns the
     /// height it took.
     private func drawAlert(_ alert: String, at y: CGFloat, unit: CGFloat, pad: CGFloat) -> CGFloat {
         let lines = alertLineCount(alert, unit: unit, width: bounds.width)
