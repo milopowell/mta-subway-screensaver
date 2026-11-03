@@ -95,8 +95,11 @@ final class MapPanel {
     }
 
     /// Carries out MotionPlanner's commands for this panel (`animated: false` for snapshots).
-    func apply(_ commands: [TrainCommand], animated: Bool = true) {
+    /// - Parameter fadeIn: false to show new dots at once (re-creating dots that were on screen, after a layout change).
+    func apply(_ commands: [TrainCommand], animated: Bool = true, fadeIn: Bool = true) {
+        trains.fadesIn = fadeIn
         trains.apply(commands, toView: toView, dot: dotDiameter, circle: stationCircleUnits * pointsPerUnit, animated: animated)
+        trains.fadesIn = true
     }
 
     /// A station circle's diameter on the map, in map units (a waiting train's bullet covers it).

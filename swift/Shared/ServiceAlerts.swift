@@ -1,11 +1,12 @@
 import Foundation
 
 /// One alert from the MTA's subway alerts feed: delays, suspensions, reroutes, skipped stops, station notices. The
-/// next-train board lists those that affect a home station (`relevant(to:network:now:)`).
+/// next-train board lists those that affect a home station (`isRelevant(to:network:now:)`).
 struct ServiceAlert {
     /// The routes it's about.
     let routes: Set<String>
-    /// The stations it names (parent station IDs, like "127"); empty for one about a whole line.
+    /// The stops it names, as the feed gives them (stations like "127", or platforms like "127N"); empty for one about a
+    /// whole line.
     let stations: Set<String>
     /// When it applies (unix times); empty = now and until further notice.
     let periods: [(start: Double, end: Double)]
@@ -22,7 +23,8 @@ struct ServiceAlert {
         guard isActive(at: now), let info = network.stations[station], !routes.isDisjoint(with: info.routes) else {
             return false
         }
-        return stations.isEmpty || stations.contains { network.stations[$0]?.complex == info.complex }
+        // A platform stands for its station (network.platforms), and any station of the complex counts.
+        return stations.isEmpty || stations.contains { network.stations[network.platforms[$0] ?? $0]?.complex == info.complex }
     }
 
     /// The alerts in one download of the feed.
@@ -38,11 +40,7 @@ struct ServiceAlert {
             var routes = Set<String>(), stations = Set<String>()
             for entity in alert.informedEntity {
                 if !entity.routeID.isEmpty { routes.insert(entity.routeID) }
-                if !entity.stopID.isEmpty {
-                    // A platform ("127N") stands for its station.
-                    let id = entity.stopID
-                    stations.insert(id.count == 4 && (id.hasSuffix("N") || id.hasSuffix("S")) ? String(id.dropLast()) : id)
-                }
+                if !entity.stopID.isEmpty { stations.insert(entity.stopID) }
             }
             guard !routes.isEmpty else { return nil }
             let periods = alert.activePeriod.map {

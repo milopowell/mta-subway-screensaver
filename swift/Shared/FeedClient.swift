@@ -191,6 +191,7 @@ final class FeedHub {
     /// Seconds between alert downloads (alerts change slowly, and the feed is large), and how long the last good one is
     /// kept when downloads fail.
     var alertsEvery: TimeInterval = 300
+    var alertsRetry: TimeInterval = 60
     var alertsKeepFor: TimeInterval = 1800
     private var alertsFetchedAt = -Double.infinity, alertsTriedAt = -Double.infinity
 
@@ -235,8 +236,11 @@ final class FeedHub {
             while !Task.isCancelled {
                 let (fresh, at) = await FeedClient.fetchEach(settings: settings)
                 guard let self, !Task.isCancelled else { return }
-                // Alerts every `alertsEvery` seconds (after a failed try, again with the next round of train feeds).
-                if at - self.alertsTriedAt >= self.alertsEvery || (self.alertsTriedAt > self.alertsFetchedAt && !fresh.isEmpty) {
+                self.latest = (fresh, at)
+                for handler in self.handlers.values { handler(fresh, at) }  // trains first: alerts can wait
+                // Alerts every `alertsEvery` seconds; after a failed try, again a minute later.
+                let alertsFailed = self.alertsTriedAt > self.alertsFetchedAt
+                if at - self.alertsTriedAt >= (alertsFailed ? self.alertsRetry : self.alertsEvery) {
                     self.alertsTriedAt = at
                     if let alerts = await FeedClient.fetchAlerts(), !Task.isCancelled {
                         self.alerts = alerts
@@ -244,8 +248,6 @@ final class FeedHub {
                     }
                 }
                 if at - self.alertsFetchedAt > self.alertsKeepFor { self.alerts = [] }  // too old to trust
-                self.latest = (fresh, at)
-                for handler in self.handlers.values { handler(fresh, at) }
                 let wait = self.wait(succeeded: fresh.count, of: settings.feeds.count)
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }

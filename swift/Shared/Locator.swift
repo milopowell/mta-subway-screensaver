@@ -180,7 +180,7 @@ final class Locator {
             }
         }
         var result = straight
-        if let pair = net.pairPaths?["\(a)|\(b)"] ?? siblingPair(a, b), pair.count > 1 {
+        if let pair = net.pairPaths?["\(a)|\(b)"] ?? siblingPair(a, b, from: pa, to: pb), pair.count > 1 {
             result = (Polyline(pair.map(CGPoint.init)), true)
         }
         if let line = best?.line {
@@ -205,7 +205,7 @@ final class Locator {
     /// that stops at every station in between, joined hop by hop. Its own route's patterns are tried first, then the
     /// others'. Only up to 6 stops apart, and only if every piece is drawn. Nil if none.
     private func chainedPath(route: String, from a: String, to b: String) -> [CGPoint]? {
-        for r in [route] + patternsByRoute.keys.sorted() where r != route || patternsByRoute[r] != nil {
+        for r in [route] + patternsByRoute.keys.sorted().filter({ $0 != route }) {
             for p in patternsByRoute[r] ?? [] {
                 var stations: [String] = []
                 for platform in p.stops {
@@ -232,15 +232,21 @@ final class Locator {
     /// no track joins directly (a weekend A on the F's track, stopping at Broadway-Lafayette St and then at the 8 Av
     /// level of W 4 St, while the F's track reaches the 6 Av level). Its ends are within each complex, so the glide
     /// follows the track and steps across inside the station. Nil if there is none.
-    private func siblingPair(_ a: String, _ b: String) -> [[Double]]? {
+    /// Of several such tracks (two big complexes with several lines between them), the one whose ends are nearest
+    /// where the train stands at the two stations (`from` and `to`): the line it's on, not just the first by station ID.
+    private func siblingPair(_ a: String, _ b: String, from pa: CGPoint, to pb: CGPoint) -> [[Double]]? {
         let left = complexMembers[net.stations[a]?.complex ?? a] ?? [a]
         let right = complexMembers[net.stations[b]?.complex ?? b] ?? [b]
+        var best: (gap: CGFloat, pair: [[Double]])?
         for x in left {
             for y in right where x != y {
-                if let pair = net.pairPaths?["\(x)|\(y)"], pair.count > 1 { return pair }
+                guard let pair = net.pairPaths?["\(x)|\(y)"], pair.count > 1 else { continue }
+                let start = CGPoint(pair[0]), end = CGPoint(pair[pair.count - 1])
+                let gap = hypot(start.x - pa.x, start.y - pa.y) + hypot(end.x - pb.x, end.y - pb.y)
+                if best == nil || gap < best!.gap { best = (gap, pair) }
             }
         }
-        return nil
+        return best?.pair
     }
 
     /// Same as the notebook's locate_from_export(): steps 1–6 of §6, in the same order.
@@ -325,10 +331,14 @@ final class Locator {
                 let hopTime = net.hopTimes["\(prev)>\(stop0)"] ?? net.settings.defaultHopS
                 raw.append((prev, stop0, ahead[0].time - hopTime, ahead[0].time))
             }
-        } else if trip.status == "STOPPED_AT" {
+        } else if trip.status == "STOPPED_AT",
+                  let before = previousStop(route: route, stop: first.stop, upcoming: trip.upcoming.map(\.stop)),
+                  let here = stationOf(stop0), stationOf(before) == here {
             // The vehicle still reports standing at a station its trip has already dropped from the stops ahead (the
             // two parts of the feed disagree for a moment as the train leaves): it is leaving there for the first
-            // stop listed. Without this hop the train had no timeline and was moved straight to that station.
+            // stop listed. Without this hop the train had no timeline and was moved straight to that station. Only
+            // when that station comes right before the first stop listed: a vehicle report stuck several stations
+            // back would otherwise make one long glide across the map.
             ahead = trip.upcoming
             let hopTime = net.hopTimes["\(stop0)>\(first.stop)"] ?? net.settings.defaultHopS
             raw.append((stop0, first.stop, first.time - hopTime, first.time))

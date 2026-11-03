@@ -117,6 +117,8 @@ final class SubwayView: NSView {
     private var liveTrips: [Trip] = []
     /// The trains shown this tick: live, plus scheduled ones on lines without live data (see `trains(now:)`).
     private var shownTrips: [Trip] = []
+    /// The timetable's trains for those lines, as last built (see `trains(now:)`).
+    private var scheduledTrips: (feeds: Set<String>, at: Double, trips: [Trip])?
     private var fetchedAt: Double = 0
     private var tickTimer: Timer?
     /// This view's subscription to the shared downloads (FeedHub), while started.
@@ -604,7 +606,14 @@ final class SubwayView: NSView {
     /// live twin fade out, and live ones the timetable didn't have fade in.
     private func trains(now: Double) -> [Trip] {
         guard let schedule, let network else { return liveTrips }
-        return liveTrips + schedule.trips(at: now, feeds: scheduledFeeds, parkWindow: network.settings.parkWindowS)
+        // Rebuilt every 15 s, not every tick: like live data, they're a timetable of times the planner follows, and
+        // building every scheduled train (hundreds, with all their stops) every second is wasted work.
+        let feeds = scheduledFeeds
+        if feeds.isEmpty { return liveTrips }
+        if scheduledTrips?.feeds != feeds || now - (scheduledTrips?.at ?? -.infinity) >= 15 || now < scheduledTrips!.at {
+            scheduledTrips = (feeds, now, schedule.trips(at: now, feeds: feeds, parkWindow: network.settings.parkWindowS))
+        }
+        return liveTrips + scheduledTrips!.trips
     }
 
     // ---- Each tick ----
@@ -856,7 +865,9 @@ final class SubwayView: NSView {
             let now = Date().timeIntervalSince1970
             let commands = showingTimeLapse ? [] : planner.resync(now: now)
             for panel in [fullPanel, zoomPanel].compactMap({ $0 }) { panel.clearTrains() }
-            for panel in shownPanels { panel.apply(commands) }
+            // In place at once, without fading in: they were on screen a moment ago (a resize, or the split layout's
+            // board growing for a service alert), so a fade would read as every train blinking.
+            for panel in shownPanels { panel.apply(commands, fadeIn: false) }
             if showingTimeLapse {
                 timeLapse?.redraw()
                 updateTrains(now: now)

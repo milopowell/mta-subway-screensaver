@@ -108,7 +108,10 @@ final class Schedule {
         for dayOffset in [-1, 0] {
             guard let midnight = calendar.date(byAdding: .day, value: dayOffset, to: today) else { continue }
             let running = services(on: midnight)
-            let base = midnight.timeIntervalSince1970
+            // GTFS times count from noon minus 12 hours: midnight, except on the days the clocks change, when it's an
+            // hour off (on 1 November 2026, 1 AM).
+            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: midnight) ?? midnight.addingTimeInterval(43_200)
+            let base = noon.timeIntervalSince1970 - 43_200
             for group in groups where running.contains(group.service) && feeds.contains(group.feed) {
                 let first = group.depart[0], last = group.arrive[group.arrive.count - 1]
                 for code in group.codes {

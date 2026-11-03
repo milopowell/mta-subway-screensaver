@@ -63,6 +63,8 @@ final class TrainLayers {
         }
     }
     private var layers: [String: CALayer] = [:]
+    /// New dots fade in (a train appearing); off while re-creating dots that were on screen a moment ago.
+    var fadesIn = true
     private var looks: [String: TrainLook] = [:]
     /// The panel's base dot size in points (MapPanel.dotDiameter); each look is a multiple of it.
     private var dot: CGFloat = 6
@@ -265,11 +267,12 @@ final class TrainLayers {
         layer.shadowColor = theme.glowColor.cgColor
         layer.shadowOffset = .zero
         layer.position = position
-        layer.opacity = 0
+        layer.opacity = fadesIn ? 0 : 1
         container.addSublayer(layer)
         layers[key] = layer
         looks[key] = look
         CATransaction.commit()
+        guard fadesIn else { return layer }
         CATransaction.begin()
         CATransaction.setAnimationDuration(1.0)
         layer.opacity = 1  // fade in where it is (no popping)

@@ -48,6 +48,10 @@ fi
 .venv/bin/python -m pip install --quiet -r requirements.txt \
     || fail "couldn't install the Python packages. Check the internet connection and run this setup again.
 (The details are just above.)"
+# The notebook asks for the kernel "python3", which a kernel of that name installed for the user (say, by Anaconda)
+# would answer instead of .venv. So .venv gets a kernel of its own, and the notebook runs on it.
+.venv/bin/python -m ipykernel install --prefix .venv --name mta-subway-venv --display-name "Python (mta-subway .venv)" \
+    >/dev/null 2>&1 || fail "couldn't register the Python environment with Jupyter (ipykernel)."
 print "Python packages ready ($(.venv/bin/python --version))"
 
 # ---- 3. The notebook: MTA data and the maps ----
@@ -55,7 +59,7 @@ step "Downloading the MTA data and drawing the maps (about 2 minutes)"
 started=$(date +%s)
 run=$(mktemp -d)/subway_pipeline_run.ipynb  # the notebook as run, with its output (the original stays unchanged)
 if ! .venv/bin/jupyter nbconvert --to notebook --execute subway_pipeline.ipynb \
-        --ExecutePreprocessor.timeout=1800 --output-dir "$(dirname "$run")" --output "$(basename "$run")" \
+        --ExecutePreprocessor.timeout=1800 --ExecutePreprocessor.kernel_name=mta-subway-venv --output-dir "$(dirname "$run")" --output "$(basename "$run")" \
         >/dev/null 2>"$run.log"; then
     tail -5 "$run.log" >&2
     fail "the notebook stopped with an error (the last lines are above; all of it is in $run.log).

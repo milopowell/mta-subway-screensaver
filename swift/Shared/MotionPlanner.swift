@@ -285,18 +285,21 @@ final class MotionPlanner {
     /// missed between downloads): it glides on along the track, one hop at a time, instead of jumping to the end.
     /// Nil when the dot is already there, isn't standing at a station, or the end isn't within 4 stops ahead.
     private func finishRun(_ key: String, trip: Trip, now: Double) -> [TrainCommand]? {
+        var commands: [TrainCommand] = []
         if case .traveling(let leg, let start, let duration, _)? = phases[key] {
             if now < start + duration { return [] }  // never interrupt a hop
-            phases[key] = .stopped(station: leg.to, point: stationPoint(leg, at: leg.to), look: .stopped,
-                                   route: leg.route, heading: nil)
+            // Arrived: standing at the station, and drawn so (its bullet, not a moving dot), as on any arrival.
+            let point = stationPoint(leg, at: leg.to)
+            phases[key] = .stopped(station: leg.to, point: point, look: .stopped, route: leg.route, heading: nil)
+            commands.append(.place(key: key, point: point, look: .stopped, route: leg.route))
         }
         guard case .stopped(let station?, _, _, _, _)? = phases[key], let stop = trip.vehicleStop,
               let end = locator.stationOf(stop), end != station,
               let hop = locator.catchUpLeg(route: trip.routeID, from: station, toward: end, maxHops: 4),
-              correctionDue(key, "finish run at \(end)", now: now) else { return nil }
+              correctionDue(key, "finish run at \(end)", now: now) else { return commands.isEmpty ? nil : commands }
         stats.catchUps += 1
         let duration = max(Double(hop.line.length) / catchUpSpeed, minTravelSeconds / 2)
-        return travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, kind: .catchUp)
+        return commands + travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, kind: .catchUp)
     }
 
     /// The way a train parked at the start of its run will leave: from its first stop toward its second. Nil for a
