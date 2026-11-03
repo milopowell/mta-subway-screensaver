@@ -1,7 +1,7 @@
 #!/bin/zsh
 # One command from a fresh copy of the project to an installed screensaver:
 #
-#   zsh tools/setup.sh            (from the mta-screensaver folder)
+#   zsh tools/setup.sh            (from the project's folder: mta-subway-screensaver when downloaded from GitHub)
 #   zsh tools/setup.sh --apps     also install the preview app and the sandbox in ~/Applications
 #
 # It checks the Mac (macOS 14 or later, Xcode), sets up a private Python environment in .venv (nothing else on the Mac

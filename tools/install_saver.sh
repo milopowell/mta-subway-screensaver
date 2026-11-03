@@ -2,7 +2,7 @@
 # Builds the screensaver (Release) and installs it for this user, in ~/Library/Screen Savers.
 # Afterwards choose "Subway" in System Settings > Screen Saver (Options… sets the focus stations and magnification).
 #
-#   zsh ~/mta-screensaver/tools/install_saver.sh
+#   zsh tools/install_saver.sh      (from the project's folder)
 set -e
 cd "$(dirname "$0")/../swift"
 

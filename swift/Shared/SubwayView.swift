@@ -216,7 +216,7 @@ final class SubwayView: NSView {
     /// What's wrong, if this copy can't show the map: the files the notebook exports are bundled in when the app or
     /// screensaver is built, so a build made before running the notebook (or from a damaged export) has none.
     private var problem: (title: String, detail: String)? {
-        let fix = "Run the setup again: in the mta-screensaver folder, run  zsh tools/setup.sh  in Terminal. It "
+        let fix = "Run the setup again: in the project's folder, run  zsh tools/setup.sh  in Terminal. It "
             + "rebuilds the map and data and reinstalls the screensaver."
         if document == nil {
             return ("The subway map is missing", "This copy was built without the map. " + fix)

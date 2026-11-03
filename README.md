@@ -250,7 +250,17 @@ What it needs:
 - Xcode 16 or later, from the Mac App Store (the Command Line Tools alone are not enough). Open it once after installing. No Apple developer account: the build is signed for that Mac only.
 - An internet connection, to set up and to run.
 
-Then one command, from the project folder, does the rest (about 10 minutes the first time):
+Nothing else: Xcode brings Git and Python 3, and the setup installs the Python packages it needs.
+
+Get the code from GitHub, either with Git (it comes with Xcode; open Xcode once first):
+
+```bash
+git clone https://github.com/milopowell/mta-subway-screensaver.git
+```
+
+or with the green **Code** button > **Download ZIP** on the GitHub page, then unzip it. Either way you get a folder named `mta-subway-screensaver` (`mta-subway-screensaver-main` for the ZIP). With Git, later updates are `git pull` and running the setup again; with a ZIP, download it again.
+
+Then one command, from inside that folder, does the rest (about 10 minutes the first time):
 
 ```bash
 zsh tools/setup.sh
@@ -340,7 +350,7 @@ The screensaver shares one feed download among all its views (one per display, p
 
 ### Tests and measurements
 
-All of these run the preview app's executable from Terminal:
+All of these run the preview app's executable from Terminal. The commands in this README assume the project is at `~/mta-screensaver`; a copy downloaded from GitHub is in a folder named `mta-subway-screensaver`, so adjust the path.
 
 ```bash
 cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/SubwayPreview.app/Contents/MacOS/SubwayPreview

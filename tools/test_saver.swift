@@ -2,7 +2,7 @@
 // screen: it runs the saver on live data, renders what it shows to a PNG, measures its CPU use, checks it stops
 // when macOS announces the screensaver is ending, and renders its Options sheet.
 //
-// Build and run (from the mta-screensaver folder):
+// Build and run (from the project's folder):
 //   swiftc -O tools/test_saver.swift -o /tmp/test_saver
 //   /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver_test
 // Writes <out>_screen.png and <out>_options.png.

@@ -2,7 +2,7 @@
 # Builds the preview app and the sandbox (Release) and installs them in ~/Applications, replacing earlier copies, so
 # Spotlight, Launchpad and the Dock find them. Run it again after any change to the code or the notebook's export.
 #
-#   zsh ~/mta-screensaver/tools/install_apps.sh
+#   zsh tools/install_apps.sh      (from the project's folder)
 #
 # Each installed copy is stamped with the commit it was built from and the date (shown in its About window), noting
 # uncommitted changes when there were any. The build folder is hidden from Spotlight, so searching "Subway" finds only
@@ -11,12 +11,16 @@
 set -e
 cd "$(dirname "$0")/../swift"
 
-# The version stamp: the commit, whether the working tree differs from it, and today's date.
-commit=$(git rev-parse --short HEAD)
-if [[ -n "$(git status --porcelain)" ]]; then
-    stamp="Commit $commit plus uncommitted changes, $(date '+%-d %b %Y %H:%M')"
+# The version stamp: the commit, whether the working tree differs from it, and today's date. A copy downloaded as a
+# ZIP from GitHub has no Git history to name, so it says so instead.
+if commit=$(git rev-parse --short HEAD 2>/dev/null); then
+    if [[ -n "$(git status --porcelain)" ]]; then
+        stamp="Commit $commit plus uncommitted changes, $(date '+%-d %b %Y %H:%M')"
+    else
+        stamp="Commit $commit, $(date '+%-d %b %Y')"
+    fi
 else
-    stamp="Commit $commit, $(date '+%-d %b %Y')"
+    stamp="Downloaded copy (no Git history), built $(date '+%-d %b %Y')"
 fi
 
 target="$HOME/Applications"

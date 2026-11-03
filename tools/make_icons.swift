@@ -5,7 +5,7 @@
 //     a hollow train and a solid one.
 // The artwork is original (no MTA map), so the icons are kept in the repository.
 //
-// Run from the mta-screensaver folder after changing a design, then rebuild:
+// Run from the project's folder after changing a design, then rebuild:
 //   swift tools/make_icons.swift
 
 import AppKit
