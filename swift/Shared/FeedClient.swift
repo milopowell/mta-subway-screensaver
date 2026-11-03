@@ -93,6 +93,22 @@ enum FeedClient {
         return (feeds, fetchedAt)
     }
 
+    /// The MTA's subway service alerts (GTFS-Realtime alerts: delays, suspensions, reroutes, skipped stops).
+    static let alertsURL = URL(string: "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts")!
+
+    /// Downloads the service alerts; nil if the download fails. (About 400 KB, mostly planned work for later dates, so
+    /// FeedHub fetches it only every few minutes.)
+    static func fetchAlerts() async -> [ServiceAlert]? {
+        do {
+            let (data, response) = try await session.data(from: alertsURL)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            return ServiceAlert.alerts(from: try TransitRealtime_FeedMessage(serializedBytes: data))
+        } catch {
+            NSLog("FeedClient: alerts failed: %@", error.localizedDescription)
+            return nil
+        }
+    }
+
     /// Downloads all feeds and returns every trip in the notebook's feed order. Failed feeds contribute nothing.
     static func fetchAll(settings: SubwayNetwork.Settings) async -> (trips: [Trip], fetchedAt: Double) {
         let (feeds, fetchedAt) = await fetchEach(settings: settings)
@@ -170,6 +186,13 @@ final class FeedHub {
     var maxRetryInterval: TimeInterval = 120
     /// Rounds in a row in which some feed failed.
     private var failedRounds = 0
+    /// The latest service alerts (see `alertsEvery`), for the next-train board.
+    private(set) var alerts: [ServiceAlert] = []
+    /// Seconds between alert downloads (alerts change slowly, and the feed is large), and how long the last good one is
+    /// kept when downloads fail.
+    var alertsEvery: TimeInterval = 300
+    var alertsKeepFor: TimeInterval = 1800
+    private var alertsFetchedAt = -Double.infinity, alertsTriedAt = -Double.infinity
 
     private var handlers: [UUID: Handler] = [:]
     private var task: Task<Void, Never>?
@@ -192,6 +215,7 @@ final class FeedHub {
             task?.cancel()
             task = nil
             latest = nil  // stale by the time anyone subscribes again
+            alertsTriedAt = -.infinity  // fetch alerts again on the next start (kept meanwhile, until too old)
         }
     }
 
@@ -211,6 +235,15 @@ final class FeedHub {
             while !Task.isCancelled {
                 let (fresh, at) = await FeedClient.fetchEach(settings: settings)
                 guard let self, !Task.isCancelled else { return }
+                // Alerts every `alertsEvery` seconds (after a failed try, again with the next round of train feeds).
+                if at - self.alertsTriedAt >= self.alertsEvery || (self.alertsTriedAt > self.alertsFetchedAt && !fresh.isEmpty) {
+                    self.alertsTriedAt = at
+                    if let alerts = await FeedClient.fetchAlerts(), !Task.isCancelled {
+                        self.alerts = alerts
+                        self.alertsFetchedAt = at
+                    }
+                }
+                if at - self.alertsFetchedAt > self.alertsKeepFor { self.alerts = [] }  // too old to trust
                 self.latest = (fresh, at)
                 for handler in self.handlers.values { handler(fresh, at) }
                 let wait = self.wait(succeeded: fresh.count, of: settings.feeds.count)

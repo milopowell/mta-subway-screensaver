@@ -736,6 +736,13 @@ if wantsSnapshot != nil || wantsDump != nil {
         if let age = value(after: "--outage-age").flatMap(Double.init) { view.simulatedOutageAge = age }
     }
     view.simulatedOfflineStart = arguments.contains("--offline")
+    if arguments.contains("--live") {  // the board's service alerts too, as the app's download loop would fetch them
+        var alerts: [ServiceAlert]?
+        let fetched = DispatchSemaphore(value: 0)
+        Task.detached { alerts = await FeedClient.fetchAlerts(); fetched.signal() }
+        fetched.wait()
+        view.alertsOverride = alerts ?? []
+    }
     if let step = value(after: "--drift").flatMap(Int.init) {  // burn-in protection at drift position 0–7
         view.driftsAgainstBurnIn = true
         view.setDriftPosition(step)

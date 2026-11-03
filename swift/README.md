@@ -27,7 +27,7 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `MapDocument.swift` | Renders a region of the map PDF to a bitmap |
 | `Viewport.swift` | Fits a map region to a panel's shape |
 | `SubwayNetwork.swift` | Reads `network.json` |
-| `FeedClient.swift` | Downloads and decodes the 8 live feeds in parallel; `FeedCache` holds each feed's last good download when one fails; `FeedHub` shares one download loop among all views |
+| `FeedClient.swift` | Downloads and decodes the 8 live feeds in parallel, and the service alerts every 5 minutes; `FeedCache` holds each feed's last good download when one fails; `FeedHub` shares one download loop among all views |
 | `gtfs-realtime.pb.swift` | Generated feed decoder (do not edit) |
 | `Locator.swift` | Places trains: an exact port of the notebook's `locate_from_export` (hops follow the exported `hop_paths`, and rerouted trains another line's track), plus each train's timeline of hops (`legs`), where each waiting train will leave toward, and which lines a train passes under |
 | `MotionPlanner.swift` | Turns timelines into motion: when each train stands, glides, waits, catches up or fades elsewhere |
@@ -36,7 +36,8 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `TimeLapse.swift` | Replays that history at 20 times speed in a loop (same commands as MotionPlanner): a testing tool |
 | `Schedule.swift` | The MTA timetable (`schedule.json`): the trains that should be running now, described like live trips, for lines without live data; `Trip.identity`, the trip code a live train and its scheduled twin share |
 | `Polyline.swift` | Geometry along a track line |
-| `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown |
+| `NextTrains.swift` | The next-train board: arrivals per home station, uptown and downtown, and the service alerts for its lines |
+| `ServiceAlerts.swift` | The MTA's service alerts (`ServiceAlert`): which routes and stations each is about, when it applies, its main message, and which ones a home station's board lists |
 | `StationPicker.swift` | The home-station picker: your stations (reorder, remove), search, browse by line, stations by borough (preview app only: a screensaver cannot be clicked) |
 | `RouteSymbols.swift` | Route symbols (colored circles, diamonds for express variants), shared by the picker, the next-train board and the waiting trains' bullets |
 | `SubwaySettings.swift` | Saved choices: home stations (up to 4), layout, magnification, appearance, train board style and tint |

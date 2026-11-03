@@ -53,6 +53,8 @@ final class SubwayView: NSView {
     }
     /// The magnified map is at least this many map units wide (a station circle is 8.2), for context.
     var zoomMinWidth: CGFloat = 300
+    /// For snapshots: service alerts to show instead of the shared download loop's (FeedHub.alerts).
+    var alertsOverride: [ServiceAlert]?
     /// Burn-in protection, for the screensaver: the whole view moves a few points every few minutes (see `drift`).
     var driftsAgainstBurnIn = false { didSet { needsLayout = true } }
     /// Show the status line (time, counts, data age, CPU): useful in the preview app; off in the screensaver.
@@ -297,6 +299,19 @@ final class SubwayView: NSView {
     /// Clear glass is drawn by the board itself (the map shows through, unblurred, under a tint and the text backdrops)
     /// rather than with Apple's clear glass style, which the screensaver drew like regular glass: a screensaver's window
     /// is never the active one.
+    /// The close-up's board can grow up to this tall.
+    private var closeUpBoardMaxHeight: CGFloat { bounds.height * 0.7 }
+
+    /// The board's height after its service alerts changed. In the close-up the board floats over the map, so only the
+    /// board is resized (a full layout would recreate every train dot); in the split layout its height sets the
+    /// magnified map's, so the whole view is laid out again.
+    private func refitBoard() {
+        guard let (frame, closeUp) = boardPlacement else { return }
+        guard closeUp else { needsLayout = true; return }
+        placeBoard(CGRect(x: frame.minX, y: frame.minY, width: frame.width,
+                          height: boardHeight(width: frame.width, maxHeight: closeUpBoardMaxHeight)), closeUp: true)
+    }
+
     private func placeBoard(_ frame: CGRect, closeUp: Bool) {
         boardPlacement = (frame, closeUp)
         let style = closeUp ? settings.boardStyle : .solid
@@ -657,10 +672,16 @@ final class SubwayView: NSView {
     private func updateBoards(now: Double) {
         guard let network else { return }
         nextTrains.time = Date(timeIntervalSince1970: now)
-        nextTrains.boards = settings.homeStations.compactMap {
+        let alerts = alertsOverride ?? FeedHub.shared.alerts
+        let boards = settings.homeStations.compactMap {
             StationBoard.make(station: $0, trips: shownTrips, network: network, now: now,
-                              perDirection: nextTrains.perDirection)
+                              perDirection: nextTrains.perDirection, alerts: alerts)
         }
+        // New or cleared alerts change the board's height: lay it out again.
+        let alertsChanged = boards.map(\.alerts) != nextTrains.boards.map(\.alerts)
+            || boards.map(\.moreAlerts) != nextTrains.boards.map(\.moreAlerts)
+        nextTrains.boards = boards
+        if alertsChanged { refitBoard() }
     }
 
     // ---- Layout ----
@@ -730,8 +751,10 @@ final class SubwayView: NSView {
     private func boardHeight(width: CGFloat, maxHeight: CGFloat) -> CGFloat {
         let stations = settings.homeStations.filter { network?.stations[$0] != nil }.count
         var perDirection = stations <= 1 ? 3 : 2
+        let alerts = nextTrains.alertLines(width: width)
         func needs(_ rows: Int) -> CGFloat {
-            NextTrainsView.height(stations: stations, perDirection: rows, width: width)
+            NextTrainsView.height(stations: stations, perDirection: rows, width: width, alertLines: alerts.lines,
+                                  alertStations: alerts.stations)
         }
         while perDirection > 1, needs(perDirection) > maxHeight { perDirection -= 1 }
         nextTrains.perDirection = perDirection
@@ -789,7 +812,7 @@ final class SubwayView: NSView {
             let boardBottom: CGFloat = showsStatus ? 32 : margin  // above the status line
             nextTrains.isHidden = false
             placeBoard(CGRect(x: margin, y: boardBottom, width: boardWidth,
-                              height: boardHeight(width: boardWidth, maxHeight: h * 0.7)), closeUp: true)
+                              height: boardHeight(width: boardWidth, maxHeight: closeUpBoardMaxHeight)), closeUp: true)
         } else if split {
             fullPanel.root.isHidden = false
             let fullWidth = min(h * mapAspect, w * 0.6)

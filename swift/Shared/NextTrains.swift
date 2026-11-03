@@ -12,6 +12,11 @@ struct StationBoard {
     let name: String
     let northLabel: String, southLabel: String
     let north: [Arrival], south: [Arrival]
+    /// Service alerts for this station's lines (ServiceAlert.text): about this station first, then about a whole line;
+    /// at most `maxAlerts`, and how many more there are.
+    var alerts: [String] = []
+    var moreAlerts = 0
+    static let maxAlerts = 2
     /// Routes with a train coming (what's running now), in a stable order.
     var routesNow: [String] { Array(Set((north + south).map(\.route))).sorted() }
 
@@ -21,7 +26,7 @@ struct StationBoard {
     ///   - perDirection: how many trains to list each way.
     ///   - now: unix time "now".
     static func make(station: String, trips: [Trip], network: SubwayNetwork, now: Double,
-                     perDirection: Int = 3) -> StationBoard? {
+                     perDirection: Int = 3, alerts: [ServiceAlert] = []) -> StationBoard? {
         guard let info = network.stations[station] else { return nil }
         func arrivals(platform: String) -> [Arrival] {
             var out: [Arrival] = []
@@ -34,8 +39,15 @@ struct StationBoard {
             }
             return Array(out.sorted { $0.minutes < $1.minutes }.prefix(perDirection))
         }
-        return StationBoard(station: station, name: info.name, northLabel: info.northLabel, southLabel: info.southLabel,
-                            north: arrivals(platform: station + "N"), south: arrivals(platform: station + "S"))
+        var board = StationBoard(station: station, name: info.name, northLabel: info.northLabel, southLabel: info.southLabel,
+                                 north: arrivals(platform: station + "N"), south: arrivals(platform: station + "S"))
+        let relevant = alerts.filter { $0.isRelevant(to: station, network: network, now: now) }
+        let ordered = relevant.filter { !$0.stations.isEmpty } + relevant.filter { $0.stations.isEmpty }
+        var texts: [String] = []
+        for alert in ordered where !texts.contains(alert.text) { texts.append(alert.text) }  // the same notice, once
+        board.alerts = Array(texts.prefix(maxAlerts))
+        board.moreAlerts = max(texts.count - maxAlerts, 0)
+        return board
     }
 }
 
@@ -77,18 +89,36 @@ final class NextTrainsView: NSView {
     private static let trainRow: CGFloat = 2.1  // a large route symbol and the minutes
     private static let stationGap: CGFloat = 1.0
     private static let bottomMargin: CGFloat = 0.6
+    private static let alertLine: CGFloat = 1.15  // one line of a service alert
+    private static let alertGap: CGFloat = 0.35  // after a station's alerts
+    private static let alertSize: CGFloat = 0.8  // their text, in units
+    private static let alertIndent: CGFloat = 1.3  // room for the warning sign
 
     /// Base font size for a board of this width.
     static func unit(forWidth width: CGFloat) -> CGFloat {
         min(max(width / 20, 11), 18)
     }
 
-    /// The height the board needs for `stations` stations with `perDirection` rows each way.
-    static func height(stations: Int, perDirection: Int, width: CGFloat) -> CGFloat {
+    /// The height the board needs for `stations` stations with `perDirection` rows each way, plus `alertLines` lines of
+    /// service alerts over `alertStations` stations (`alertLines(_:width:)`).
+    static func height(stations: Int, perDirection: Int, width: CGFloat, alertLines: Int = 0, alertStations: Int = 0) -> CGFloat {
         let unit = unit(forWidth: width)
         guard stations > 0 else { return (headerRows + trainRow + bottomMargin) * unit }
         let station = nameRow + labelRow + CGFloat(perDirection) * trainRow
-        return (headerRows + CGFloat(stations) * station + CGFloat(stations - 1) * stationGap + bottomMargin) * unit
+        let alerts = CGFloat(alertLines) * alertLine + CGFloat(alertStations) * alertGap
+        return (headerRows + CGFloat(stations) * station + CGFloat(stations - 1) * stationGap + alerts + bottomMargin) * unit
+    }
+
+    /// How many lines the boards' service alerts take at this width (each alert wraps to at most two lines; "+N more"
+    /// takes one), and over how many stations.
+    func alertLines(width: CGFloat) -> (lines: Int, stations: Int) {
+        let unit = NextTrainsView.unit(forWidth: width)
+        var lines = 0, stations = 0
+        for board in boards where !board.alerts.isEmpty {
+            stations += 1
+            lines += board.alerts.reduce(0) { $0 + alertLineCount($1, unit: unit, width: width) } + (board.moreAlerts > 0 ? 1 : 0)
+        }
+        return (lines, stations)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -141,6 +171,19 @@ final class NextTrainsView: NSView {
                 x += bullet(route, center: CGPoint(x: x + unit * 0.65, y: y + unit * 0.9), diameter: unit * 1.3) + unit * 0.2
             }
             y += unit * NextTrainsView.nameRow
+            // Service alerts for this station's lines, under its name.
+            if !board.alerts.isEmpty {
+                for alert in board.alerts {
+                    y += drawAlert(alert, at: y, unit: unit, pad: pad)
+                }
+                if board.moreAlerts > 0 {
+                    let more = "+\(board.moreAlerts) more alert\(board.moreAlerts == 1 ? "" : "s")"
+                    text(more, at: CGPoint(x: pad + unit * NextTrainsView.alertIndent, y: y),
+                         size: unit * NextTrainsView.alertSize, color: theme.secondaryInk)
+                    y += unit * NextTrainsView.alertLine
+                }
+                y += unit * NextTrainsView.alertGap
+            }
             // Two columns: north-bound and south-bound, each with exactly `perDirection` rows.
             for (column, (label, arrivals)) in [(board.northLabel, board.north), (board.southLabel, board.south)].enumerated() {
                 let left = pad + CGFloat(column) * (columnWidth + pad)
@@ -175,6 +218,80 @@ final class NextTrainsView: NSView {
             }
             y += unit * (NextTrainsView.labelRow + CGFloat(perDirection) * NextTrainsView.trainRow + NextTrainsView.stationGap)
         }
+    }
+
+    // ---- Service alerts ----
+
+    /// An alert's text with its route tokens drawn as small route symbols, like the MTA's own notices.
+    private func alertText(_ alert: String, unit: CGFloat) -> NSAttributedString {
+        let size = unit * NextTrainsView.alertSize
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.minimumLineHeight = unit * NextTrainsView.alertLine
+        style.maximumLineHeight = unit * NextTrainsView.alertLine
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size), .foregroundColor: theme.ink, .paragraphStyle: style,
+        ]
+        let out = NSMutableAttributedString()
+        var rest = Substring(alert)
+        while let open = rest.firstIndex(of: "["), let close = rest[open...].firstIndex(of: "]") {
+            out.append(NSAttributedString(string: String(rest[..<open]), attributes: attributes))
+            let token = String(rest[rest.index(after: open)..<close])
+            if let route = ServiceAlert.route(forToken: token) {
+                let diameter = size * 1.15
+                let colors = routeColors
+                let image = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+                    RouteSymbolsView.draw(route, center: CGPoint(x: rect.midX, y: rect.midY), diameter: diameter * 0.92,
+                                          colors: colors)
+                    return true
+                }
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                attachment.bounds = CGRect(x: 0, y: -size * 0.22, width: diameter, height: diameter)
+                let symbol = NSMutableAttributedString(attachment: attachment)
+                symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
+                out.append(symbol)
+            } else {  // an icon token, as words: "[shuttle bus icon]" → "shuttle bus"
+                let words = token.replacingOccurrences(of: " icon", with: "")
+                out.append(NSAttributedString(string: words, attributes: attributes))
+            }
+            rest = rest[rest.index(after: close)...]
+        }
+        out.append(NSAttributedString(string: String(rest), attributes: attributes))
+        return out
+    }
+
+    /// Lines an alert takes at this width: as many as it wraps to, up to two (longer ones end in "…").
+    private func alertLineCount(_ alert: String, unit: CGFloat, width: CGFloat) -> Int {
+        let available = width - 2 * unit - unit * NextTrainsView.alertIndent
+        let height = alertText(alert, unit: unit).boundingRect(with: CGSize(width: available, height: .greatestFiniteMagnitude),
+                                                               options: [.usesLineFragmentOrigin]).height
+        return min(max(Int((height / (unit * NextTrainsView.alertLine)).rounded(.up)), 1), 2)
+    }
+
+    /// Draws one alert under a station's name: a small warning sign, then the text (at most two lines). Returns the
+    /// height it took.
+    private func drawAlert(_ alert: String, at y: CGFloat, unit: CGFloat, pad: CGFloat) -> CGFloat {
+        let lines = alertLineCount(alert, unit: unit, width: bounds.width)
+        let height = CGFloat(lines) * unit * NextTrainsView.alertLine
+        let left = pad + unit * NextTrainsView.alertIndent
+        let available = bounds.width - pad - left
+        backdrop(CGRect(x: pad, y: y + unit * 0.1, width: bounds.width - 2 * pad, height: height - unit * 0.2), unit: unit)
+        // The warning sign: a yellow triangle with a dark "!", like the MTA's.
+        let s = unit * 0.95, top = y + unit * 0.12
+        let triangle = NSBezierPath()
+        triangle.move(to: CGPoint(x: pad + s / 2, y: top))
+        triangle.line(to: CGPoint(x: pad + s, y: top + s * 0.88))
+        triangle.line(to: CGPoint(x: pad, y: top + s * 0.88))
+        triangle.close()
+        NSColor(srgbRed: 0.99, green: 0.80, blue: 0.10, alpha: 1).setFill()
+        triangle.fill()
+        let mark = NSAttributedString(string: "!", attributes: [
+            .font: NSFont.systemFont(ofSize: s * 0.62, weight: .heavy), .foregroundColor: NSColor(white: 0.1, alpha: 1)])
+        mark.draw(at: CGPoint(x: pad + s / 2 - mark.size().width / 2, y: top + s * 0.2))
+        alertText(alert, unit: unit).draw(with: CGRect(x: left, y: y, width: available, height: height),
+                                          options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        return height
     }
 
     // ---- Drawing helpers ----

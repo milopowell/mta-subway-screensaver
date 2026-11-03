@@ -25,7 +25,6 @@ The Python side does the heavy, once-in-a-while work. The Swift side does only w
 | Scheduled service without live data | Done: from the start, after an outage, or for one feed; hands over to live trains when data returns (31 October 2026) |
 | Later | Windows version; iPhone and iPad (see below) |
 
-The notebook walkthrough has covered sections 1 and 2; section 3 is next.
 
 
 ## How it works
@@ -112,6 +111,12 @@ At 20 times speed there are dozens of stops and starts every second, so the time
 ### When a download fails
 
 `FeedCache` (in `FeedClient.swift`) keeps the last good download of each feed. A feed counts as failed on a network error, an HTTP error, unreadable data, or an empty response. When a feed fails, its trains keep following their last predictions instead of vanishing. Held data is dropped once it is 5 minutes old (the stale limit). The app retries after 10 seconds instead of 30, and waits twice as long after each further failed round: up to 30 seconds while some feeds still work, and up to 2 minutes when none do. So a Mac without internet, or many Macs during an MTA outage, don't keep asking every few seconds; the timetable runs the lines meanwhile. Every request names the app (`User-Agent: SubwayScreensaver/1.0`, with the project's address), so the MTA can tell where the traffic comes from.
+
+### Service alerts
+
+The next-train board lists the MTA's service alerts for each home station's lines, under the station's name: a small yellow warning sign, then the alert's main message with route names drawn as small route symbols, as on the MTA's own notices ("Downtown (1) skips 125 St"). An alert is listed when it's active now, is about one of the station's routes, and either names that station (or another part of its complex) or is about the whole line ("(F) trains are disrupted and rerouted in Brooklyn"). Alerts naming the station come first. Each takes up to two lines, ending in "…" if longer; a station shows at most two, then "+N more alerts".
+
+`FeedHub` downloads the alerts feed (`FeedClient.fetchAlerts`, read by `ServiceAlert` in `swift/Shared/ServiceAlerts.swift`) every 5 minutes with the train feeds, since alerts change slowly and the feed is large. After a failed try it tries again with the next round, and it keeps the last good alerts for up to 30 minutes. The board grows to fit them. In the close-up only the board is resized; in the split layout, the whole view is laid out again. In snapshots, `--live` fetches the alerts too.
 
 ### Scheduled service
 
@@ -226,10 +231,11 @@ mta-screensaver/
 |---|---|---|
 | [MTA GTFS static schedule](https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip) | Stations, stopping patterns, scheduled hop times, track shapes | None |
 | [MTA GTFS-Realtime feeds](https://api.mta.info/) (`api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs…`, 8 feeds) | Live trips and predicted arrivals | None |
+| [MTA subway service alerts](https://api.mta.info/) (`…/camsys%2Fsubway-alerts`, GTFS-Realtime) | Delays, suspensions, reroutes, skipped stops and station notices for the next-train board | None |
 | [Official MTA subway map](https://www.mta.info/map/5256) (vector PDF) | The map itself, and where each station sits on it | None |
 | [data.ny.gov MTA Subway Stations](https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f) | "Uptown" / "Downtown" labels per station, borough | None |
 
-One round of the 8 live feeds is about 140 KB compressed. At one round every 30 seconds, that is about 17 MB per hour while the screensaver runs. Requests identify the app with a `User-Agent` naming the project.
+One round of the 8 live feeds is about 140 KB compressed. At one round every 30 seconds, that is about 17 MB per hour while the screensaver runs. The alerts feed is about 400 KB (mostly planned work for later dates) and is downloaded every 5 minutes, about 5 MB per hour more. Requests identify the app with a `User-Agent` naming the project.
 
 
 ## Running it
@@ -419,7 +425,7 @@ These are the issues most likely to affect how smoothly the app runs, roughly in
    - Throughout, after the screensaver ended, Apple's process stayed loaded at 0.0% CPU for 5 minutes.
 
    macOS can leave the screensaver running while the display sleeps, until the Mac is woken. So downloads and updates pause when the display sleeps and resume when it wakes (Apple's process at 0.0% CPU with the display dark, against 0.1–19% before this). Not yet tested: several displays.
-3. **Network and battery while the screensaver runs.** About 17 MB per hour and 1–2% of one core while it shows, and nothing while the display sleeps. On battery, the app could also poll less often.
+3. **Network and battery while the screensaver runs.** About 22 MB per hour (17 for the trains, 5 for the alerts) and 1–2% of one core while it shows, and nothing while the display sleeps. On battery, the app could also poll less often.
 
    Memory, measured on 2 November 2026 (`test_saver --soak 3600`, one hour on live data): the screensaver stayed at 47–55 MB with no upward trend (first 50 MB, last 49 MB), at 1.6–1.9% of one core, and stopped cleanly afterwards (0.01%). Apple's screensaver host running it held about 155 MB. Both are higher than on 29 October (25–34 MB and 83–94 MB, over 2 hours with a 45-minute internet outage), from the larger maps (icons and label outlines) and the timetable; neither grows. The preview app held at 61–63 MB in its default window and settled at about 100 MB in a larger one (bigger map images), as measured on 29 October.
 4. **Two copies of the placement rules.** `locate` exists in Python and in Swift. A change to one must be made in the other and checked with `tools/compare_swift_python.py`. The smooth-motion planner, the timetable trains and the route bullets exist only in Swift, by design: the notebook places trains and checks the data, and the app animates them.
