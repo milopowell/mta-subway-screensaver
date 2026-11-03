@@ -192,7 +192,7 @@ mta-screensaver/
 │   └── __init__.py            OfficialMap: station_point, hop_line, station_extent, draw
 ├── data/                      downloads and notebook figures (re-creatable)
 │   ├── gtfs_subway.zip        MTA static schedule
-│   ├── subway_diagram.pdf     official MTA map
+│   ├── subway_diagram.pdf     official MTA map (downloaded again when over 30 days old)
 │   ├── mta_stations.csv       data.ny.gov station list (uptown/downtown labels, boroughs)
 │   └── *.png                  snapshots from the notebook
 ├── export/                    written by §8; bundled into the Swift app at build time
@@ -371,6 +371,8 @@ The status line in the preview app shows the train counts and the app's own CPU 
 | `PARK_WINDOW_S` | notebook §1 (exported) | 600 | Trains leaving a terminal within this many seconds are shown parked; later ones are hidden |
 | `TRAIN_DOT_UNITS` | notebook §1 (exported) | 6.5 | Train dot size in map units, before on-screen limits |
 | `FOCUS_VIEWS` | notebook §1 (exported) | 5 presets | Named groups of stations for magnified views |
+| `STATIC_MAX_AGE_DAYS` | notebook §1 | 7 | The schedule and the station list are downloaded again when older than this |
+| `MAP_MAX_AGE_DAYS` | notebook §1 | 30 | The official map is downloaded again when older than this; a new edition goes through the station matching like any other |
 | `cruiseSpeed` | `swift/Shared/MotionPlanner.swift` | 1.5 | Glide speed in map units per second. Higher means brisker motion and longer station waits; lower keeps dots closer to the real trains mid-hop |
 | `WATER`, `PARKS` | `mtamap/style.py` | dark navy, dark green | Tints for water and parks on the black map (re-run §8 and rebuild after changing) |
 | `HATCH`, `HATCH_WIDTH`, `HATCH_WASH` | `mtamap/style.py` | 30 stripes per inch, 0.8, 35% | Part-time services (the Z, the 7 express, …) are hatched lines on the paper map: the PDF paints them with a pattern of diagonal stripes in the route's color. They're drawn the same way, with a faint wash of the color under the stripes on the dark map (re-run §8 and rebuild after changing) |
@@ -396,11 +398,11 @@ The status line in the preview app shows the train counts and the app's own CPU 
 Settings marked "exported" take effect in the app only after re-running §8 and rebuilding.
 
 
-## Refreshing the schedule
+## Refreshing the schedule and the map
 
-The MTA republishes the static schedule several times a year. The current export was built on 31 October 2026 from the fall 2026 schedule, valid **1 November 2026 to 15 May 2027**. To refresh:
+The MTA republishes the static schedule several times a year, and updates the official map now and then: the edition of 3 November 2026 renamed Jamaica Center-Parsons/Archer to Jamaica Center-York College and dropped a warning icon at Coney Island. The current export was built on 3 November 2026 from that map and the fall 2026 schedule, valid **1 November 2026 to 15 May 2027**. `zsh tools/setup.sh` does all of the following; by hand:
 
-1. Run the notebook. When the zip is older than `STATIC_MAX_AGE_DAYS`, §1 downloads a new schedule.
+1. Run the notebook. When the schedule zip and the station list are older than `STATIC_MAX_AGE_DAYS` (7 days), §1 downloads them again; when the map is older than `MAP_MAX_AGE_DAYS` (30 days), §4 downloads it again and says whether it's a new edition. If a download fails, the copy already there is used.
 2. Check the §4 matching report. Every station should still be matched to the map; a new or renamed station would show up here.
 3. Run §8. It re-exports the maps, `network.json` and `schedule.json`, and asserts the export still places trains exactly like §6.
 4. Reinstall (`tools/install_saver.sh`, and `tools/install_apps.sh` for the apps) so they bundle the new files.
@@ -410,7 +412,7 @@ The MTA republishes the static schedule several times a year. The current export
 
 These are the issues most likely to affect how smoothly the app runs, roughly in order of urgency.
 
-1. **The schedule expires on 15 May 2027.** From two weeks before, a corner note says so ("Timetable ends …"), and after it "Timetable out of date since …", both asking to run the setup again: the screensaver can't refresh its own data. The live feeds keep working afterwards, and offline the app runs the timetable for the same day of the week. But any new stopping pattern in the next schedule is unknown to the app: a train on one may skip the motion planner's timeline and fade between stations, and offline service follows the old timetable. Refresh as described above once the MTA publishes the new file.
+1. **The schedule expires on 15 May 2027.** From two weeks before, a corner note says so ("Timetable ends …"), and after it "Timetable out of date since …", both asking to run the setup again: the screensaver can't refresh its own data. The live feeds keep working afterwards, and offline the app runs the timetable for the same day of the week. But any new stopping pattern in the next schedule is unknown to the app: a train on one may skip the motion planner's timeline and fade between stations, and offline service follows the old timetable. Refresh as described in "Refreshing the schedule and the map" once the MTA publishes the new file.
 2. **macOS screensaver hosting.** Third-party screensavers run inside Apple's `legacyScreenSaver` process, which stays loaded after the screensaver closes, so the saver stops all its work on `com.apple.screensaver.willstop`. It has been tested on screen, on 2 November 2026:
    - The screensaver started, and the Mac locked with it.
    - The display slept and woke, and the Mac was unlocked, then locked and unlocked again.
