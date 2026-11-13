@@ -469,6 +469,7 @@ if let dir = value(after: "--replay") {
                 + "next \(next.joined(separator: ", ")); placed \(locator.locate(trip, now: clock).how); planner: \(reasons[key] ?? "-")"
         }
         var next = 0, trips: [Trip] = [], scheduled: (at: Double, trips: [Trip])?
+        var planSeconds = 0.0, ticks = 0  // the planner's own time, per tick
         var t = firstRound.time
         while t <= lastRound.time + 30 {
             // A round due: take it in, as FeedHub would.
@@ -487,7 +488,10 @@ if let dir = value(after: "--replay") {
                 scheduled = nil
             }
             clock = t
+            let started = CFAbsoluteTimeGetCurrent()
             let commands = planner.update(trips: trips, now: t)
+            planSeconds += CFAbsoluteTimeGetCurrent() - started
+            ticks += 1
             // Each train's route and trip, by the planner's key for it.
             for trip in trips {
                 guard let key = planner.keyOfTrip[trip.tripID] else { continue }
@@ -523,6 +527,8 @@ if let dir = value(after: "--replay") {
         }
         print(String(format: "replayed %d rounds (%.0f min): %d glides; planner's reasons for fades: %@", rounds.count,
                      (lastRound.time - firstRound.time) / 60, audit.glides, "\(planner.stats.teleportReasons)"))
+        print(String(format: "planner: %.2f ms a tick on average (%d ticks; about %.0f trains)", planSeconds / Double(max(ticks, 1)) * 1000,
+                     ticks, Double(trips.count)))
     }
 
     // Report: counts, then each problem (up to 15 of each kind).

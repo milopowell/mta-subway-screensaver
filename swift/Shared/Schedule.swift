@@ -199,8 +199,15 @@ final class TripKeys {
     private var holder: [String: String] = [:]
     /// Trips that go by their full ID, and when each was last seen (forgotten after an hour away).
     private var byFullID: [String: Double] = [:]
+    /// The last list of trips and their keys: between downloads the list is the same, and so are the keys.
+    private var lastIDs: [String] = [], lastKeys: [String] = []
+    /// True when the last call worked the keys out again (the list of trips had changed).
+    private(set) var changed = true
 
     func keys(for trips: [Trip], now: Double) -> [String] {
+        let ids = trips.map(\.tripID)
+        changed = ids != lastIDs
+        guard changed else { return lastKeys }
         // Trips claiming each identity key (those already going by their full ID don't).
         var claims: [String: [String]] = [:]
         for trip in trips where byFullID[trip.tripID] == nil {
@@ -219,6 +226,8 @@ final class TripKeys {
             return "\(trip.feed)|\(trip.tripID)"
         }
         byFullID = byFullID.filter { now - $0.value < 3600 }
+        lastIDs = ids
+        lastKeys = keys
         return keys
     }
 }

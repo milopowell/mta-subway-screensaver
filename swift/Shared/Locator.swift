@@ -54,6 +54,7 @@ final class Locator {
 
     init(network: SubwayNetwork) {
         net = network
+        onMapPlatforms = Set(network.platforms.filter { network.stations[$0.value] != nil }.keys)
         lines = network.routeLines.mapValues { $0.map { Polyline($0.map(CGPoint.init)) } }
         complexMembers = Dictionary(grouping: network.stations.keys.sorted()) { network.stations[$0]!.complex }
         strokes = (network.routeStrokes ?? []).map { stroke in
@@ -356,12 +357,30 @@ final class Locator {
     ///   2. every following hop: leaves at the predicted departure, arrives at the predicted arrival.
     /// MotionPlanner turns this into smooth animations. `after`: the station the train's dot is at or heading to, if
     /// known, which settles the hop it's on when the stops ahead fit more than one pattern (`previousStop(…after:)`).
-    func legs(for trip: Trip, now: Double, after hint: String? = nil) -> [Leg]? {
-        let base = locate(trip, now: now)
+    ///
+    /// `base`: the trip's `locate` result, if already known (the planner has it). The timeline is kept per trip and
+    /// reused while the trip's data, the dot's station and the placement are unchanged: between downloads (every 30 s)
+    /// they are, and building every train's hops every second was most of the planner's time.
+    func legs(for trip: Trip, now: Double, after hint: String? = nil, base known: Placement? = nil) -> [Leg]? {
+        let base = known ?? locate(trip, now: now)
+        // The same trip data, dot station and placement as last time: the same timeline.
+        let signature = LegsSignature(feed: trip.feed, count: trip.upcoming.count, first: trip.upcoming.first?.stop,
+                                      times: trip.upcoming.reduce(0) { $0 + $1.time + 0.5 * ($1.departure ?? 0) },
+                                      vehicle: trip.vehicleStop, status: trip.status, hint: hint, how: base.how)
+        if let cached = legsCache[trip.tripID], cached.signature == signature { return cached.legs }
+        if legsCache.count > 4000 { legsCache.removeAll() }  // trips come and go: start again now and then
+        let legs = buildLegs(for: trip, base: base, hint: hint)
+        legsCache[trip.tripID] = (signature, legs)
+        return legs
+    }
+
+    /// The work of `legs`.
+    private func buildLegs(for trip: Trip, base: Placement, hint: String?) -> [Leg]? {
         // The stops ahead that are stations on the map. The feed sometimes lists a stop that isn't one (R60S between
         // Queensboro Plaza and Lexington Av/59 St, R65N between Court St and Whitehall St), and with it first the
         // train's hop couldn't be worked out: the dot, already ahead at the next station, was moved back to the last.
-        let upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+        let upcoming = trip.upcoming.allSatisfy({ onMapPlatforms.contains($0.stop) }) ? trip.upcoming
+            : trip.upcoming.filter { onMapPlatforms.contains($0.stop) }
         guard let first = upcoming.first else { return nil }
         let route = trip.routeID
         let stop0 = (trip.vehicleStop?.isEmpty == false) ? trip.vehicleStop! : first.stop
@@ -677,6 +696,14 @@ final class Locator {
         return line.copy(strokingWithWidth: half * 2, lineCap: .round, lineJoin: .round, miterLimit: 2)  // round ends close joints
     }
 
+    /// Platforms whose station is on the map (`stationOf` isn't nil), for the checks every trip gets every second.
+    private let onMapPlatforms: Set<String>
+    /// Each trip's last timeline (see `legs`), reused while nothing it depends on has changed.
+    private var legsCache: [String: (signature: LegsSignature, legs: [Leg]?)] = [:]
+    private struct LegsSignature: Equatable {
+        let feed: String, count: Int, first: String?, times: Double, vehicle: String?, status: String?, hint: String?, how: String
+    }
+
     /// The trip as motion sees it: without the stops that aren't stations on the map, and with no vehicle stop if that
     /// isn't one (it is then on its way to its first stop on the map). The feed gives the R under the East River its
     /// next stop as R60N, a stop that isn't a station, for a couple of minutes: the notebook's rule hides a train it
@@ -687,19 +714,25 @@ final class Locator {
     /// past while a later stop is still to come: the feed kept listing a 6 train's passed stops ("14 St-Union Sq, 173 s ago") ahead of Grand
     /// Central, and the notebook's rule, which takes a trip whose first stop is that old for a leftover, hid it.
     func onMap(_ trip: Trip, now: Double) -> Trip {
-        var upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+        let stale = now - net.settings.staleAfterS
+        let vehicleOnMap = trip.vehicleStop.map { $0.isEmpty || onMapPlatforms.contains($0) } ?? true
+        // Quick: every stop on the map, and nothing stale at the front (most trips, every second).
+        if vehicleOnMap, trip.status == nil || (trip.upcoming.first.map { $0.time >= stale } ?? true),
+           trip.upcoming.allSatisfy({ onMapPlatforms.contains($0.stop) }) {
+            return trip
+        }
+        var upcoming = trip.upcoming.filter { onMapPlatforms.contains($0.stop) }
         // Passed stops at the front, while a later one is still fresh: only for a trip with a train running it (one with
         // no train whose times have all gone by is a leftover, and stays hidden).
         // Never the stop the train is heading for, however late it is there (a 7 overdue at Mets-Willets Point); but a
         // report of standing at a stop that old is stuck (a 6 "at 14 St-Union Sq" for minutes as its times moved on),
         // and that stop goes too (the timeline then works from the stops ahead and where the dot is).
-        if trip.status != nil, var fresh = upcoming.firstIndex(where: { $0.time >= now - net.settings.staleAfterS }), fresh > 0 {
+        if trip.status != nil, var fresh = upcoming.firstIndex(where: { $0.time >= stale }), fresh > 0 {
             if trip.status != "STOPPED_AT", let vehicle = upcoming.firstIndex(where: { $0.stop == trip.vehicleStop }) {
                 fresh = min(fresh, vehicle)
             }
             upcoming.removeFirst(fresh)
         }
-        let vehicleOnMap = trip.vehicleStop.map { $0.isEmpty || stationOf($0) != nil } ?? true
         if upcoming.count == trip.upcoming.count && vehicleOnMap { return trip }
         return Trip(feed: trip.feed, tripID: trip.tripID, routeID: trip.routeID,
                     status: vehicleOnMap || trip.status == nil ? trip.status : "IN_TRANSIT_TO",

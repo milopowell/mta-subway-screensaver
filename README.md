@@ -9,7 +9,7 @@ The project has two halves:
 - **A Python pipeline**, run in Jupyter: `subway_pipeline.ipynb`. It downloads the MTA schedule and map, works out the track geometry, matches every station to its place on the official map, and exports four files: the map as two PDFs (dark and light), a network description (JSON) and the timetable (JSON), which runs lines that have no live data.
 - **A native Swift app**, in `swift/`. It reads those files, downloads the live train feeds every 30 seconds, and animates the trains. It builds three things from the same code: the `.saver` screensaver, a preview app for development, and a sandbox app for sending trains by hand.
 
-The Python side does the heavy, once-in-a-while work. The Swift side does only what has to happen live, so the screensaver uses about 2% of one CPU core.
+The Python side does the heavy, once-in-a-while work. The Swift side does only what has to happen live, so the screensaver uses about 1% of one CPU core.
 
 
 ## Current status
@@ -207,6 +207,10 @@ The whole 90-minute recording, a day of service changes (5 trains rerouted onto 
 - **Stale stops at the front of a trip:** the feed kept listing a 6's passed stops minutes old, and the notebook's rule hid it as a leftover. Motion drops them (keeping the stop a train is heading for, however late), and a dot at a station the train reaches later (its last stop, or one an express passes) waits there.
 
 Against the first run of that recording: jumps 8 → 1, going back 24 → 5, fades 81 → 46, no glides cut short; the time-lapse's jumps 15 → 3. The line runs are unchanged.
+
+Most of the fades left were trains the feed first lists after they've already set off: the dot waiting at the first station faded across to them. A waiting dot is now tied to its station, so it glides along the line to catch up (up to 4 stations; further than that it still fades). Fades on that recording: 46 → 19, the rest being trains the feed moves more than 4 stations at once and the rerouted 5s.
+
+**The planner's cost.** All this made the planner slower: 8.5 ms a tick (once a second, about 760 trains). Most of it was redone every second though the data changes only every 30: each train's timeline is now kept and reused while its data and its dot's station are unchanged, the trip keys too, and the stops are checked against a set of the map's platforms. Now 2.3 ms a tick, with every result of the check unchanged; the screensaver measured 0.9–1.1% of one core (against 2.3% before, and 1.6–1.9% on 2 November).
 
 On the first 20 minutes, the replay had no jumps, glides cut short or glides off the track; what's left is the feed's own doing (a train first seen after it has already set off, whose waiting dot fades across to it; a train the feed moves several stations at once; a train flapping in and out of the feed at New Lots Av). The time-lapse over it had no problems at all.
 

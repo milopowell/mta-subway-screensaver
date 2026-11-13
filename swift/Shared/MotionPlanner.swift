@@ -135,7 +135,7 @@ final class MotionPlanner {
         // Keyed by the MTA's trip code, so a live train continues as the same dot as its scheduled twin when live data
         // returns (Trip.identity); by the whole ID for a second trip with the same code (TripKeys).
         let keys = tripKeys.keys(for: trips, now: now)
-        keyOfTrip = Dictionary(zip(trips.map(\.tripID), keys), uniquingKeysWith: { a, _ in a })
+        if tripKeys.changed { keyOfTrip = Dictionary(zip(trips.map(\.tripID), keys), uniquingKeysWith: { a, _ in a }) }
         for (listed, key) in zip(trips, keys) {
             // Only the stops that are stations on the map, without passed ones at the front (Locator.onMap).
             let trip = locator.onMap(listed, now: now)
@@ -154,7 +154,7 @@ final class MotionPlanner {
             case nil: dotStation = nil
             }
             // Parked trains have no timeline, unless the dot is already running this trip (Locator.legs decides).
-            let timeline = base.kind == .parked && dotStation == nil ? nil : locator.legs(for: trip, now: now, after: dotStation)
+            let timeline = base.kind == .parked && dotStation == nil ? nil : locator.legs(for: trip, now: now, after: dotStation, base: base)
             if timeline == nil, trip.status == "STOPPED_AT", let glide = finishRun(key, trip: trip, now: now) {
                 commands += glide  // standing at the end of its run (or with nothing ahead), its dot a few stops short
                 continue
@@ -174,6 +174,15 @@ final class MotionPlanner {
                 var keep: String?
                 if case .stopped(let station?, let point, _, _, _)? = phases[key], hypot(point.x - basePoint.x, point.y - basePoint.y) <= 3 {
                     keep = station
+                }
+                // A train waiting to start its run is parked at its first station: tied to it, so that when the feed
+                // shows it already a station or two on (first seen after it set off), its dot glides there, hop by
+                // hop, rather than fading across.
+                if keep == nil, base.kind == .parked,
+                   let stop = trip.vehicleStop.flatMap({ $0.isEmpty ? nil : $0 }) ?? trip.upcoming.first?.stop,
+                   let station = locator.stationOf(stop) {
+                    let p = locator.stationPoint(route: trip.routeID, station: station)
+                    if hypot(p.x - basePoint.x, p.y - basePoint.y) <= 3 { keep = station }
                 }
                 commands += stop(key, station: keep, point: basePoint, look: look, now: now, route: trip.routeID,
                                  heading: base.kind == .parked ? startHeading(trip) : nil)
