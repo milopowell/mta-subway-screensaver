@@ -3,7 +3,7 @@
 #
 #   zsh tools/record_feeds.sh 60       record for 60 minutes (the default), into data/recordings/<date>_<time>/
 #
-# A download every 30 seconds, like the app, each saved as it came (about 17 MB an hour). The Mac is kept awake while
+# A download every 30 seconds, like the app, each saved as it came (about 80 MB an hour). The Mac is kept awake while
 # it records (caffeinate). Late nights and weekends are worth recording: that's when trains run their odd patterns
 # (locals on express lines, reroutes). A recording of something that looked wrong can be kept, and the check then
 # replays it after every change.

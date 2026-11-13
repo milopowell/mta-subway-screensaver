@@ -97,6 +97,11 @@ final class MotionPlanner {
     private var why = ""
     /// Corrections waiting for their train's delay: what the correction is, and when it may happen.
     private var pendingCorrections: [String: (what: String, due: Double)] = [:]
+    /// Each trip's key (see TripKeys), and the latest keys by trip ID (for the test tools).
+    private let tripKeys = TripKeys()
+    private(set) var keyOfTrip: [String: String] = [:]
+    /// The way the train being planned is going ("N" or "S").
+    private var direction: Character?
     /// Trains missing from the data, and since when (see `goneAfter`).
     private var missingSince: [String: Double] = [:]
     /// Where the data has been asking a standing train to move, and since when (see `settleSeconds`).
@@ -128,10 +133,14 @@ final class MotionPlanner {
         var commands: [TrainCommand] = []
         var seen = Set<String>()
         // Keyed by the MTA's trip code, so a live train continues as the same dot as its scheduled twin when live data
-        // returns (Trip.identity); by the whole ID for a second trip with the same code (Trip.keys).
-        for (listed, key) in zip(trips, Trip.keys(for: trips)) {
-            // Only the stops that are stations on the map (Locator.onMap).
-            let trip = locator.onMap(listed)
+        // returns (Trip.identity); by the whole ID for a second trip with the same code (TripKeys).
+        let keys = tripKeys.keys(for: trips, now: now)
+        keyOfTrip = Dictionary(zip(trips.map(\.tripID), keys), uniquingKeysWith: { a, _ in a })
+        for (listed, key) in zip(trips, keys) {
+            // Only the stops that are stations on the map, without passed ones at the front (Locator.onMap).
+            let trip = locator.onMap(listed, now: now)
+            // The way it's going ("N" or "S", from its platforms), for catching up on a pattern going the same way.
+            direction = trip.upcoming.first?.stop.last
             let base = locator.locate(trip, now: now)  // the notebook's rules decide whether it's shown
             guard let basePoint = base.point else { continue }
             seen.insert(key)
@@ -151,10 +160,22 @@ final class MotionPlanner {
                 continue
             }
             guard let legs = timeline else {
-                // Parked, or no timeline: stand where the notebook places it (a move waits for its turn).
+                // Parked, or no timeline: stand where the notebook places it (a move waits for its turn), once any glide
+                // is over (never interrupt a hop).
+                if case .traveling(_, let start, let duration, _)? = phases[key], now < start + duration { continue }
+                // Standing at a station still listed ahead of the train (its last stop, reached while the vehicle report
+                // lags behind: a C at Euclid Av, reported back at Broadway Junction): it stays.
+                if case .stopped(let station?, _, _, _, _)? = phases[key],
+                   trip.upcoming.contains(where: { locator.stationOf($0.stop) == station }) { continue }
                 let look: TrainLook = base.kind == .parked ? .parked : .stopped
                 why = base.kind == .parked ? "parked: \(base.how)" : "no timeline: \(base.how)"
-                commands += stop(key, station: nil, point: basePoint, look: look, now: now, route: trip.routeID,
+                // Asked to stand where it already stands: it keeps its station, so it can still glide on from there
+                // (to the end of its run) rather than jump.
+                var keep: String?
+                if case .stopped(let station?, let point, _, _, _)? = phases[key], hypot(point.x - basePoint.x, point.y - basePoint.y) <= 3 {
+                    keep = station
+                }
+                commands += stop(key, station: keep, point: basePoint, look: look, now: now, route: trip.routeID,
                                  heading: base.kind == .parked ? startHeading(trip) : nil)
                 continue
             }
@@ -164,6 +185,17 @@ final class MotionPlanner {
                 // interrupt a hop: standing it there at once snapped the dot the rest of the way, at the end of a run).
                 if case .traveling(_, let start, let duration, _)? = phases[key], now < start + duration { continue }
                 let last = legs[legs.count - 1]
+                // Standing at the last hop's start, or a few stops before it: it glides on to the last station rather
+                // than jump there (a late 4 at Mosholu Pkwy, with Woodlawn its last stop).
+                if case .stopped(let station?, _, _, _, _)? = phases[key], station != last.to,
+                   let hop = station == last.from ? last
+                       : locator.catchUpLeg(route: last.route, from: station, toward: last.to, maxHops: 4, direction: direction),
+                   correctionDue(key, "late, on to \(last.to)", now: now) {
+                    stats.catchUps += 1
+                    let duration = max(Double(hop.line.length) / catchUpSpeed, minTravelSeconds / 2)
+                    commands += travel(key, leg: hop, path: hop.line.points, duration: duration, now: now, kind: .catchUp)
+                    continue
+                }
                 why = "past its last prediction"
                 commands += stop(key, station: last.to, point: locator.standPoint(route: last.route, station: last.to, from: last.from),
                                  look: .stopped, now: now, route: last.route)
@@ -254,8 +286,11 @@ final class MotionPlanner {
                 return stop(key, station: station, point: stationPoint(current, at: current.from), look: .stopped, now: now,
                             route: current.route, heading: departure(current))
             }
+            // Ahead: at the hop's end, or a station the train reaches later (one its hops leave from or end at, or one a
+            // pattern going its way reaches after the hop's start: a 6 running express past 23 St and 28 St).
             if let station, station == current.to
-                || legs.contains(where: { $0.from == station && $0.arrive > current.arrive }) {
+                || legs.contains(where: { ($0.from == station || $0.to == station) && $0.arrive > current.arrive })
+                || locator.catchUpLeg(route: current.route, from: current.from, toward: station, maxHops: 8, direction: direction) != nil {
                 stats.waitsAhead += 1
                 pendingCorrections[key] = nil
                 return []  // we're ahead of the predictions: keep waiting here until they catch up
@@ -277,7 +312,11 @@ final class MotionPlanner {
             guard correctionDue(key, "from \(station ?? "parked") toward \(current.from)", now: now) else { return [] }
             // Further along: leave now and catch up, one hop at a time.
             if let station, let behind = legs.first(where: { $0.from == station && $0.arrive < current.arrive })
-                ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4, then: current.to) {
+                ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4, then: current.to)
+                // Running express where its patterns stop (6 trains express through Manhattan): any pattern going its way.
+                ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4, direction: direction)
+                // Rerouted onto another line (5 trains on the 2/3 through 34 St-Penn Station): along that line's track.
+                ?? reroutedCatchUp(from: station, toward: current) {
                 stats.catchUps += 1
                 let duration = max(Double(behind.line.length) / catchUpSpeed, minTravelSeconds / 2)
                 return travel(key, leg: behind, path: behind.line.points, duration: duration, now: now, kind: .catchUp)
@@ -311,6 +350,18 @@ final class MotionPlanner {
         if delay < 0.5 { return true }
         pendingCorrections[key] = (what, now + delay)
         return false
+    }
+
+    /// For a rerouted train (its hop isn't on its route's patterns): the hop from `station` to the start of `current`
+    /// along the track between them (Locator.hopLine falls back to the line its route borrows), when there is one, it's
+    /// short (a station or two), and it leads on the way the train is going (so never back the way it came).
+    private func reroutedCatchUp(from station: String, toward current: Locator.Leg) -> Locator.Leg? {
+        let (line, followed) = locator.hopLine(route: current.route, from: station, to: current.from)
+        guard followed, line.length > 0, line.length < 150, let a = line.points.first, let b = line.points.last,
+              let c = current.line.points.last else { return nil }
+        // Same way on: from the station to the hop's start, then on to its end.
+        guard (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y) > 0 else { return nil }
+        return Locator.Leg(route: current.route, from: station, to: current.from, depart: current.depart, arrive: current.depart, line: line)
     }
 
     private func stationPoint(_ leg: Locator.Leg, at station: String) -> CGPoint {
@@ -401,6 +452,12 @@ final class MotionPlanner {
         // Start and end exactly at the station dots: the colored line can pass a few map units from a station's
         // circle, and the dot stands at the circle before and after the glide (otherwise it would snap).
         var path = path
+        // From where the dot stands: a rerouted train's stand point can be worked out from two different circles (the
+        // one for the hop it arrived on, the one for the hop it leaves on), a few map units apart.
+        if case .stopped(_, let point, _, _, _)? = phases[key], let first = path.first {
+            let gap = hypot(first.x - point.x, first.y - point.y)
+            if gap > 0.5, gap < 15 { path.insert(point, at: 0) }
+        }
         if leg.from != leg.to {
             let start = stationPoint(leg, at: leg.from), end = stationPoint(leg, at: leg.to)
             if path.first == leg.line.points.first, let first = path.first, hypot(first.x - start.x, first.y - start.y) > 0.5 {

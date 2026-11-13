@@ -47,6 +47,8 @@ final class TripHistory {
     /// trip → station → what the feed said while that station was still listed
     private var seen: [String: [String: Seen]] = [:]
     private let platforms: [String: String]
+    /// Each trip's key, kept from download to download (as the motion planner keys trains).
+    private let tripKeys = TripKeys()
 
     /// - Parameters:
     ///   - platforms: stop ID → station ID (network.json `platforms`).
@@ -67,7 +69,7 @@ final class TripHistory {
         firstObserved = firstObserved ?? at
         lastObserved = at
         var present = Set<String>()
-        for (trip, key) in zip(trips, Trip.keys(for: trips)) {  // keyed as the motion planner keys trains
+        for (trip, key) in zip(trips, tripKeys.keys(for: trips, now: at)) {  // keyed as the motion planner keys trains
             present.insert(key)
             let standingAt = trip.status == "STOPPED_AT" ? trip.vehicleStop.flatMap { platforms[$0] } : nil
             var listed: [String: Seen] = [:]

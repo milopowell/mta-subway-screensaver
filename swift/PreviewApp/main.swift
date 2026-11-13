@@ -240,12 +240,17 @@ if arguments.contains("--path-audit") {
             done.wait()
             cache.receive(result!.feeds, at: result!.fetchedAt)
             trips = cache.trips
-            for (trip, key) in zip(trips, Trip.keys(for: trips)) { routeOf[key] = trip.routeID }  // the planner's key
-            tripOf = Dictionary(zip(Trip.keys(for: trips), trips), uniquingKeysWith: { a, _ in a })
             lastDownload = tick
             downloads.append(tick)
         }
-        for command in planner.update(trips: trips, now: tick) {
+        let commands = planner.update(trips: trips, now: tick)
+        // Each train's route and trip, by the planner's key for it.
+        for trip in trips {
+            guard let key = planner.keyOfTrip[trip.tripID] else { continue }
+            routeOf[key] = trip.routeID
+            tripOf[key] = trip
+        }
+        for command in commands {
             switch command {
             case .place(let key, let point, _, _, _):
                 if let p = position[key], hypot(p.x - point.x, p.y - point.y) > 3 {
@@ -481,12 +486,14 @@ if let dir = value(after: "--replay") {
             } else {
                 scheduled = nil
             }
-            for (trip, key) in zip(trips, Trip.keys(for: trips)) {  // keyed as the planner keys them
+            clock = t
+            let commands = planner.update(trips: trips, now: t)
+            // Each train's route and trip, by the planner's key for it.
+            for trip in trips {
+                guard let key = planner.keyOfTrip[trip.tripID] else { continue }
                 routeOf[key] = trip.routeID
                 tripOf[key] = trip
             }
-            clock = t
-            let commands = planner.update(trips: trips, now: t)
             // --follow TEXT: every trip whose ID contains TEXT, each round (what the feed said) and each command.
             if let follow = value(after: "--follow") {
                 let name = { (stop: String) in locator.stationOf(stop).map(locator.stationName) ?? stop }

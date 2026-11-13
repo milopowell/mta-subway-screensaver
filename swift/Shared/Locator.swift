@@ -411,6 +411,12 @@ final class Locator {
             ahead = upcoming
             let hopTime = net.hopTimes["\(before)>\(first.stop)"] ?? net.settings.defaultHopS
             raw.append((before, first.stop, first.time - hopTime, first.time))
+        } else if trip.status == "STOPPED_AT", let here = stationOf(stop0), runsBefore(route: route, here, first.stop) {
+            // Express: the vehicle stands at a station a few stops before the first stop listed, on a pattern of its
+            // route (a C running express from Broadway Junction straight to Euclid Av): it leaves from there for it.
+            ahead = upcoming
+            let hopTime = net.hopTimes["\(stop0)>\(first.stop)"] ?? net.settings.defaultHopS
+            raw.append((stop0, first.stop, first.time - hopTime, first.time))
         } else {
             return nil
         }
@@ -676,13 +682,36 @@ final class Locator {
     /// next stop as R60N, a stop that isn't a station, for a couple of minutes: the notebook's rule hides a train it
     /// can't place, so its dot faded out at Lexington Av/59 St and back in at Queens Plaza. (`locate` itself keeps the
     /// notebook's rule.)
-    func onMap(_ trip: Trip) -> Trip {
-        let upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+    ///
+    /// Also, for a trip with a train, without the stops listed at the front with times more than the stale limit in the
+    /// past while a later stop is still to come: the feed kept listing a 6 train's passed stops ("14 St-Union Sq, 173 s ago") ahead of Grand
+    /// Central, and the notebook's rule, which takes a trip whose first stop is that old for a leftover, hid it.
+    func onMap(_ trip: Trip, now: Double) -> Trip {
+        var upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+        // Passed stops at the front, while a later one is still fresh: only for a trip with a train running it (one with
+        // no train whose times have all gone by is a leftover, and stays hidden).
+        // Never the stop the train is heading for, however late it is there (a 7 overdue at Mets-Willets Point); but a
+        // report of standing at a stop that old is stuck (a 6 "at 14 St-Union Sq" for minutes as its times moved on),
+        // and that stop goes too (the timeline then works from the stops ahead and where the dot is).
+        if trip.status != nil, var fresh = upcoming.firstIndex(where: { $0.time >= now - net.settings.staleAfterS }), fresh > 0 {
+            if trip.status != "STOPPED_AT", let vehicle = upcoming.firstIndex(where: { $0.stop == trip.vehicleStop }) {
+                fresh = min(fresh, vehicle)
+            }
+            upcoming.removeFirst(fresh)
+        }
         let vehicleOnMap = trip.vehicleStop.map { $0.isEmpty || stationOf($0) != nil } ?? true
         if upcoming.count == trip.upcoming.count && vehicleOnMap { return trip }
         return Trip(feed: trip.feed, tripID: trip.tripID, routeID: trip.routeID,
                     status: vehicleOnMap || trip.status == nil ? trip.status : "IN_TRANSIT_TO",
                     vehicleStop: vehicleOnMap ? trip.vehicleStop : nil, upcoming: upcoming)
+    }
+
+    /// True if one of the route's patterns stops at station `a` and then, within 8 stops, at platform `stop`.
+    func runsBefore(route: String, _ a: String, _ stop: String) -> Bool {
+        (patternsByRoute[route] ?? []).contains { p in
+            guard let i = p.index[stop], i > 0 else { return false }
+            return p.stops[max(i - 8, 0)..<i].contains { stationOf($0) == a }
+        }
     }
 
     /// The name of the station whose center is nearest `point` (for problems' details).

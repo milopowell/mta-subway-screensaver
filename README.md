@@ -182,7 +182,7 @@ After the fixes, 6 problems remain in the line runs, all minor or rare: the late
 The line runs use a pretend feed, which is tidy; the real one isn't, and several bugs only showed up in live data. So real downloads can be recorded and replayed, and one command checks everything against the last good results:
 
 ```bash
-zsh tools/record_feeds.sh 60      # record an hour of the live feeds into data/recordings/ (about 17 MB an hour)
+zsh tools/record_feeds.sh 60      # record an hour of the live feeds into data/recordings/ (about 80 MB an hour)
 zsh tools/check.sh                # build, then the line runs and every recording replayed; fails if any count went up
 zsh tools/check.sh --update       # after checking a change is good: save these results as the reference
 ```
@@ -197,7 +197,18 @@ The first recording (13 November 2026, midday) found these, now fixed:
 - **Vehicle reports that lag behind:** a vehicle sometimes reports standing a station or more back from where its stops say it is (an E reported back at Canal St after Spring St; a D's report stuck at Bedford Park Blvd for minutes as its stops moved on). The dot, already ahead, was moved back. When the report can't be squared with the stops, the dot's own station settles it. And a dot standing on the track of the train's current hop (the E at Spring St, when the feed switched it to Canal St to W 4 St) carries on from there.
 - **Two trains with one trip code:** a regular A and a supplementary one (067300_A..N55R and 067300_A..N20X002) shared a code, so the time-lapse merged their histories into one train zigzagging between them. One rule now keys both the motion and the history (`Trip.keys`): the trip whose ID sorts first keeps the code.
 
-On that recording, the replay then had no jumps, glides cut short or glides off the track; what's left is the feed's own doing (a train first seen after it has already set off, whose waiting dot fades across to it; a train the feed moves several stations at once; a train flapping in and out of the feed at New Lots Av). The time-lapse over it had no problems at all.
+The whole 90-minute recording, a day of service changes (5 trains rerouted onto the 2/3 through 34 St-Penn Station and the Clark St tunnel, 6 trains running express in Manhattan, C trains running express to Euclid Av), found more:
+
+- **Rerouted and express trains faded at every stop:** catching up needed a hop on the route's own patterns. It now also takes a pattern going the train's way, or, for a train on another line's track, that track between the two stations.
+- **Glides starting a few units from the dot:** a rerouted train's stand point could come from two different circles. Glides now start where the dot stands (in the time-lapse too).
+- **Keys swapping when one of two trains with the same trip code finished:** the other took over its dot. `TripKeys` now remembers who has each key for as long as both are seen.
+- **A late train at the end of its run jumped there:** it now glides the last hop.
+- **A C running express** reported standing at Broadway Junction with Euclid Av next (three stations on): an express hop like that is now a hop, and a dot standing where it's asked to stand keeps its station.
+- **Stale stops at the front of a trip:** the feed kept listing a 6's passed stops minutes old, and the notebook's rule hid it as a leftover. Motion drops them (keeping the stop a train is heading for, however late), and a dot at a station the train reaches later (its last stop, or one an express passes) waits there.
+
+Against the first run of that recording: jumps 8 → 1, going back 24 → 5, fades 81 → 46, no glides cut short; the time-lapse's jumps 15 → 3. The line runs are unchanged.
+
+On the first 20 minutes, the replay had no jumps, glides cut short or glides off the track; what's left is the feed's own doing (a train first seen after it has already set off, whose waiting dot fades across to it; a train the feed moves several stations at once; a train flapping in and out of the feed at New Lots Av). The time-lapse over it had no problems at all.
 
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. A fix can also place a stop that has no circle at all: Aqueduct Racetrack, shown on the paper map only as a one-way-stop arrow. `--path-report` lists the remaining straight hops and draws them over the map.
 

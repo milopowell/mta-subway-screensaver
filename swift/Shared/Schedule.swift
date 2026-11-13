@@ -187,21 +187,38 @@ extension Trip {
         return "\(parts[0])_\(parts[1][..<dots])..\(direction)"
     }
 
-    /// The key each trip's dot goes by (MotionPlanner, TripHistory): "feed|identity", so a live train continues its
-    /// scheduled twin. Two trips of one feed can share an identity (a regular A and a supplementary one, 067300_A..N55R
-    /// and 067300_A..N20X002): then the one whose trip ID sorts first keeps it, and the others go by "feed|tripID".
-    /// Decided by the IDs rather than the order the feed lists them, so the two dots never swap between downloads.
-    static func keys(for trips: [Trip]) -> [String] {
-        // Who keeps each shared identity: the trip ID that sorts first.
-        var keeper: [String: String] = [:]
-        for trip in trips {
-            let key = "\(trip.feed)|\(trip.identity)"
-            if let kept = keeper[key], kept <= trip.tripID { continue }
-            keeper[key] = trip.tripID
+}
+
+/// The key each trip's dot goes by (MotionPlanner, TripHistory), kept from download to download: "feed|identity", so a
+/// live train continues its scheduled twin. Two trips of one feed can share an identity (a regular A and a supplementary
+/// one, 067300_A..N55R and 067300_A..N20X002): the one that had it keeps it (the first by trip ID if both are new), and
+/// the other goes by "feed|tripID" for as long as it's seen, even after the first has left. Otherwise, when the first
+/// finished its run, the other took over its dot: an A in Washington Heights went back to Inwood-207 St.
+final class TripKeys {
+    /// Who holds each identity key (its trip ID).
+    private var holder: [String: String] = [:]
+    /// Trips that go by their full ID, and when each was last seen (forgotten after an hour away).
+    private var byFullID: [String: Double] = [:]
+
+    func keys(for trips: [Trip], now: Double) -> [String] {
+        // Trips claiming each identity key (those already going by their full ID don't).
+        var claims: [String: [String]] = [:]
+        for trip in trips where byFullID[trip.tripID] == nil {
+            claims["\(trip.feed)|\(trip.identity)", default: []].append(trip.tripID)
         }
-        return trips.map { trip in
-            let key = "\(trip.feed)|\(trip.identity)"
-            return keeper[key] == trip.tripID ? key : "\(trip.feed)|\(trip.tripID)"
+        // A shared key: its holder keeps it if present, else the first by trip ID; the others go by their full ID.
+        for (key, ids) in claims {
+            let keeper = holder[key].flatMap { ids.contains($0) ? $0 : nil } ?? ids.min()!
+            holder[key] = keeper
+            for id in ids where id != keeper { byFullID[id] = now }
         }
+        // Each trip's key; those by full ID marked as seen now, and ones gone an hour forgotten.
+        let keys = trips.map { trip -> String in
+            guard byFullID[trip.tripID] != nil else { return "\(trip.feed)|\(trip.identity)" }
+            byFullID[trip.tripID] = now
+            return "\(trip.feed)|\(trip.tripID)"
+        }
+        byFullID = byFullID.filter { now - $0.value < 3600 }
+        return keys
     }
 }

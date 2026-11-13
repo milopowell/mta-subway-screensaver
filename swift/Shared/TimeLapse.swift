@@ -87,6 +87,23 @@ final class TimeLapse {
                 if case .gliding(let j)? = phases[key], j == n { continue }
                 let line = hopPath(route: record.route, from: visits[i].station, to: visits[n].station)
                 var path = line.points
+                // From where the dot stands: placed with the hops on both sides in mind, which for a rerouted train can
+                // borrow a different circle (a few map units off) from the one the hop's path starts at.
+                // (Standing there, or arriving from the previous hop's glide, which ends where hopPath ends it.)
+                var standing: CGPoint?
+                switch phases[key] {
+                case .at(let j)? where j == i:
+                    standing = locator.standPoint(route: record.route, station: visits[i].station,
+                                                  from: i > 0 ? visits[i - 1].station : nil, to: visits[n].station)
+                case .gliding(let j)? where j == i && i > 0:
+                    standing = locator.standPoint(route: record.route, station: visits[i].station, from: visits[i - 1].station)
+                default:
+                    standing = nil
+                }
+                if let standing, let first = path.first {
+                    let gap = hypot(first.x - standing.x, first.y - standing.y)
+                    if gap > 0.5, gap < 15 { path.insert(standing, at: 0) }
+                }
                 if phases[key] == nil {  // appearing mid-hop (start of a loop): start from where it is now
                     let done = (tau - visits[i].depart) / max(visits[n].arrive - visits[i].depart, 1)
                     path = line.piece(from: CGFloat(done) * line.length, to: line.length).points
