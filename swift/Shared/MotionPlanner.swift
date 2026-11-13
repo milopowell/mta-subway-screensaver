@@ -130,7 +130,16 @@ final class MotionPlanner {
             guard let basePoint = base.point else { continue }
             seen.insert(key)
 
-            let timeline = base.kind == .parked ? nil : locator.legs(for: trip, now: now)
+            // Where the dot is on the line: the station it stands at, or the one its glide left from (which comes before
+            // the train's next stop even while the glide is still on its way there). It settles which hop the train is on.
+            var dotStation: String?
+            switch phases[key] {
+            case .stopped(let station, _, _, _, _)?: dotStation = station
+            case .traveling(let leg, _, _, _)?: dotStation = leg.from
+            case nil: dotStation = nil
+            }
+            // Parked trains have no timeline, unless the dot is already running this trip (Locator.legs decides).
+            let timeline = base.kind == .parked && dotStation == nil ? nil : locator.legs(for: trip, now: now, after: dotStation)
             if timeline == nil, trip.status == "STOPPED_AT", let glide = finishRun(key, trip: trip, now: now) {
                 commands += glide  // standing at the end of its run (or with nothing ahead), its dot a few stops short
                 continue
@@ -240,7 +249,7 @@ final class MotionPlanner {
             guard correctionDue(key, "from \(station ?? "parked") toward \(current.from)", now: now) else { return [] }
             // Further along: leave now and catch up, one hop at a time.
             if let station, let behind = legs.first(where: { $0.from == station && $0.arrive < current.arrive })
-                ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4) {
+                ?? locator.catchUpLeg(route: current.route, from: station, toward: current.from, maxHops: 4, then: current.to) {
                 stats.catchUps += 1
                 let duration = max(Double(behind.line.length) / catchUpSpeed, minTravelSeconds / 2)
                 return travel(key, leg: behind, path: behind.line.points, duration: duration, now: now, kind: .catchUp)
@@ -249,7 +258,7 @@ final class MotionPlanner {
             stats.teleports += 1
             let reason = station == nil ? "parked placeholder matched to a train elsewhere"
                 : (legs.contains { $0.to == station } ? "station is a hop's destination"
-                   : (locator.catchUpLeg(route: current.route, from: station!, toward: current.from, maxHops: 40) != nil
+                   : (locator.catchUpLeg(route: current.route, from: station!, toward: current.from, maxHops: 40, then: current.to) != nil
                       ? "behind by more than 4 stops" : "not on this route's patterns"))
             stats.teleportReasons[reason, default: 0] += 1
             phases[key] = nil
@@ -295,7 +304,7 @@ final class MotionPlanner {
         }
         guard case .stopped(let station?, _, _, _, _)? = phases[key], let stop = trip.vehicleStop,
               let end = locator.stationOf(stop), end != station,
-              let hop = locator.catchUpLeg(route: trip.routeID, from: station, toward: end, maxHops: 4),
+              let hop = locator.catchUpLeg(route: trip.routeID, from: station, toward: end, maxHops: 4, direction: stop.last),
               correctionDue(key, "finish run at \(end)", now: now) else { return commands.isEmpty ? nil : commands }
         stats.catchUps += 1
         let duration = max(Double(hop.line.length) / catchUpSpeed, minTravelSeconds / 2)

@@ -90,6 +90,7 @@ func check() {
 if CommandLine.arguments.contains("--check") { check() }
 
 /// `--snapshot out.png`: opens the sandbox without a window, sends a train, and renders the view after 20 s.
+/// `--line-run ROUTE`: instead, starts a line run of that route (its busiest pattern each way) at 60×.
 if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
     _ = NSApplication.shared
     let size = NSSize(width: 1400, height: 860)
@@ -97,7 +98,11 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLi
     view.appearance = NSAppearance(named: .darkAqua)
     view.layoutSubtreeIfNeeded()
     view.start()
-    view.sendDefault()
+    if let k = CommandLine.arguments.firstIndex(of: "--line-run"), k + 1 < CommandLine.arguments.count {
+        view.runLineForSnapshot(route: CommandLine.arguments[k + 1], speed: 60)
+    } else {
+        view.sendDefault()
+    }
     RunLoop.main.run(until: Date().addingTimeInterval(20))
     view.layoutSubtreeIfNeeded()
     let ctx = CGContext(data: nil, width: Int(size.width * 2), height: Int(size.height * 2), bitsPerComponent: 8, bytesPerRow: 0,

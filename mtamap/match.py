@@ -40,22 +40,31 @@ def norm_name(s):
     return re.sub(r"[^a-z0-9]", "", s)
 
 
-def route_strokes(drawing, COLOR):
+def route_strokes(drawing, COLOR, patterns=False):
     """The thick route strokes in drawing order, each with its color paired to a GTFS route color (one-to-one, by
     Hungarian assignment) and its width including the casing drawn under it (the gap that separates it from lines it
-    crosses). Returns ([(index, color, width, polylines)], {map color: route color})."""
+    crosses). Returns ([(index, color, width, polylines)], {map color: route color}).
+
+    `patterns`: also the hatched strokes of part-time track (the 5's along White Plains Rd in the Bronx, the A's to
+    Rockaway Park), in their pattern's color. Off for the station matching, which they confuse (their stroke color is
+    None); on for the track trains follow and for the drawing order of the lines."""
     groups = sorted(set(COLOR.values()))
     gray = COLOR["L"]
     paths = drawing["paths"]
     strokes = []
     for i, p in enumerate(paths):
+        # Solid strokes, or (with `patterns`) hatched ones in their pattern's color.
         s = p["stroke"]
+        hatched = s is None and patterns and p.get("stroke_pattern")
+        if hatched:
+            s = p["stroke_pattern"]
         if s is None or p["lw"] < 6.5 or O.cropped(p["lo"], p["hi"]) or p.get("casing"):
             continue
         if O.is_neutral(s) and not 0.35 < O.lum(s[:3]) < 0.75:
             continue
-        strokes.append((i, tuple(round(x, 2) for x in s[:3]), p))
-    map_colors = sorted({c for _, c, _ in strokes if not O.is_neutral(c)})
+        strokes.append((i, tuple(round(x, 2) for x in s[:3]), p, bool(hatched)))
+    # Colors are paired from the solid strokes only, so the matching is the same with or without the hatched ones.
+    map_colors = sorted({c for _, c, _, h in strokes if not O.is_neutral(c) and not h})
     # cluster nearly identical map colors
     reps = []
     for c in map_colors:
@@ -74,7 +83,7 @@ def route_strokes(drawing, COLOR):
         return rep_to_group.get(r)
 
     out = []
-    for i, c, p in strokes:
+    for i, c, p, _ in strokes:
         gname = group_of(c)
         if not gname:
             continue
@@ -83,9 +92,10 @@ def route_strokes(drawing, COLOR):
     return out, rep_to_group
 
 
-def route_color_lines(drawing, COLOR):
-    """{color hex: [polyline, ...]} for the thick route strokes, pairing map colors with GTFS colors one-to-one."""
-    strokes, rep_to_group = route_strokes(drawing, COLOR)
+def route_color_lines(drawing, COLOR, patterns=False):
+    """{color hex: [polyline, ...]} for the thick route strokes, pairing map colors with GTFS colors one-to-one
+    (`patterns`: hatched part-time track too, see `route_strokes`)."""
+    strokes, rep_to_group = route_strokes(drawing, COLOR, patterns)
     lines = defaultdict(list)
     for _, color, _, polylines in strokes:
         lines[color] += polylines
@@ -465,10 +475,33 @@ def hop_line(p_a, p_b, polylines, max_snap=14.0):
     path = track_network(polylines).route(p_a, p_b, max_snap) if len(polylines) else None
     if path is None or len(path) < 2:
         return straight, False
+    path = without_reversals(path)
     piece = LineString(path)
     if piece.length < 1e-6 or piece.length > 3 * np.linalg.norm(np.array(p_b) - np.array(p_a)) + 20:
         return straight, False
     return piece, True
+
+
+def without_reversals(path):
+    """A path with its back-steps removed: where two pieces of a line overlap, the joined path runs to the end of
+    the first, steps back a few units to where the second starts, and carries on (the F at 4 Av-9 St went 700.5 →
+    746.0 → 740.7 → 755.1 along x), which made a train overshoot and turn back. Drops every point where the path turns
+    back on itself (sharper than 150°), and repeated points, until there are none."""
+    pts = [tuple(p) for p in path]
+    changed = True
+    while changed and len(pts) > 2:
+        changed = False
+        # Repeated points (zero-length steps).
+        pts = [p for k, p in enumerate(pts) if k == 0 or np.linalg.norm(np.subtract(p, pts[k - 1])) > 1e-6]
+        for k in range(1, len(pts) - 1):
+            a, b = np.subtract(pts[k], pts[k - 1]), np.subtract(pts[k + 1], pts[k])
+            la, lb = np.linalg.norm(a), np.linalg.norm(b)
+            # Turning back: the two steps point in nearly opposite directions (cos 150° ≈ -0.866).
+            if la > 0 and lb > 0 and np.dot(a, b) / (la * lb) < -0.866:
+                del pts[k]
+                changed = True
+                break
+    return pts
 
 
 def complete_chains(assigned, clusters, patterns_seq, station_routes, max_step=140):

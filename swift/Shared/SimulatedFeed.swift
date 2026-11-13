@@ -15,6 +15,8 @@ final class SimulatedFeed {
         var arrivals: [Double]  // unix times: when it reaches each stop (the first: when it was sent)
         var departures: [Double]  // … and leaves it (the last: when it leaves the data)
         let label: String  // "1: 59 St-Columbus Circle to 14 St"
+        /// Station IDs, one per platform (for the line-run checks).
+        let stations: [String]
     }
 
     private(set) var trains: [Train] = []
@@ -29,7 +31,7 @@ final class SimulatedFeed {
     }
 
     /// A pattern's stops as (platform, station), with a station that repeats in a row kept once.
-    private func stops(of pattern: SubwayNetwork.Pattern) -> [(platform: String, station: String)] {
+    func stops(of pattern: SubwayNetwork.Pattern) -> [(platform: String, station: String)] {
         var result: [(platform: String, station: String)] = []
         for platform in pattern.stops {
             guard let station = net.platforms[platform], net.stations[station] != nil,
@@ -53,21 +55,37 @@ final class SimulatedFeed {
             let list = stops(of: pattern)
             guard let i = list.firstIndex(where: { $0.station == from }),
                   let j = list[(i + 1)...].firstIndex(where: { $0.station == to }) else { continue }
-            let platforms = list[i...j].map(\.platform)
-            var arrivals = [now], departures = [now + dwell]
-            for (a, b) in zip(platforms, platforms.dropFirst()) {
-                let hop = (net.hopTimes["\(a)>\(b)"] ?? net.settings.defaultHopS) / pace
-                arrivals.append(departures[departures.count - 1] + hop)
-                departures.append(arrivals[arrivals.count - 1] + (b == platforms.last ? finishHold : dwell))
-            }
-            let name = { (s: String) in self.net.stations[s]?.name ?? s }
-            let train = Train(id: nextID, route: route, platforms: platforms, arrivals: arrivals, departures: departures,
-                              label: "\(RouteSymbolsView.label(for: route)): \(name(from)) to \(name(to))")
-            nextID += 1
-            trains.append(train)
-            return train
+            return add(route: route, stops: Array(list[i...j]), pace: pace, now: now)
         }
         return nil
+    }
+
+    /// Sends a train along a whole stop pattern, from its first station to its last (the line runs).
+    @discardableResult
+    func send(pattern: SubwayNetwork.Pattern, pace: Double, now: Double) -> Train? {
+        let list = stops(of: pattern)
+        guard list.count >= 2 else { return nil }
+        return add(route: pattern.route, stops: list, pace: pace, now: now)
+    }
+
+    /// Adds a train calling at `stops`: it stands one dwell at the first, then makes each hop in its scheduled time
+    /// (divided by `pace`), standing a dwell at each station and `finishHold` at the last.
+    private func add(route: String, stops: [(platform: String, station: String)], pace: Double, now: Double) -> Train {
+        let platforms = stops.map(\.platform)
+        // Timetable: arrive, dwell, leave; hop by hop.
+        var arrivals = [now], departures = [now + dwell]
+        for (a, b) in zip(platforms, platforms.dropFirst()) {
+            let hop = (net.hopTimes["\(a)>\(b)"] ?? net.settings.defaultHopS) / pace
+            arrivals.append(departures[departures.count - 1] + hop)
+            departures.append(arrivals[arrivals.count - 1] + (b == platforms.last ? finishHold : dwell))
+        }
+        let name = { (s: String) in self.net.stations[s]?.name ?? s }
+        let train = Train(id: nextID, route: route, platforms: platforms, arrivals: arrivals, departures: departures,
+                          label: "\(RouteSymbolsView.label(for: route)): \(name(stops[0].station)) to \(name(stops[stops.count - 1].station))",
+                          stations: stops.map(\.station))
+        nextID += 1
+        trains.append(train)
+        return train
     }
 
     /// Sends a train on a random route over a random run of `stops` stations (fewer if the route is shorter).

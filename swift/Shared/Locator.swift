@@ -111,6 +111,45 @@ final class Locator {
         return best
     }
 
+    /// The platform a train left before heading to `stop`, for motion, when the dot is known to be at (or heading to)
+    /// station `after`: among the route's patterns in which that station comes before `stop` (within 8 stops), the one
+    /// where it comes closest before it (then matching the most of the stops ahead, then the most trips). Falls back to
+    /// `previousStop(route:stop:upcoming:)` (the notebook's rule) when no pattern has the station there.
+    ///
+    /// The notebook's rule sees only the stops ahead, so a train making local stops on a line its route usually runs
+    /// express (the 4 late at night, at 116 St heading for 125 St) gets the express pattern's previous stop (86 St):
+    /// the dot, standing at 116 St, was then sent back down the line to 86 St to "catch up". Closest first: a J express
+    /// standing at Marcy Av and heading for Myrtle Av runs straight there (the express pattern, one stop), not through
+    /// the local stations of the busier local pattern.
+    func previousStop(route: String, stop: String, upcoming: [String], after hint: String?) -> String? {
+        guard let hint else { return previousStop(route: route, stop: stop, upcoming: upcoming) }
+        return previousStop(route: route, stop: stop, upcoming: upcoming, onlyAfter: hint)
+            ?? previousStop(route: route, stop: stop, upcoming: upcoming)
+    }
+
+    /// The hinted search of `previousStop(…after:)` alone: nil when no pattern of the route has station `hint` within
+    /// 8 stops before `stop`.
+    private func previousStop(route: String, stop: String, upcoming: [String], onlyAfter hint: String) -> String? {
+        var best: String?
+        var bestKey: (closeness: Int, matches: Int, trips: Int)?
+        let next8 = upcoming.prefix(8)
+        for p in patternsByRoute[route] ?? [] {
+            // The pattern stops at `stop`, with the dot's station a few stops before it.
+            guard let i = p.index[stop], i > 0,
+                  let h = p.stops[max(i - 8, 0)..<i].lastIndex(where: { stationOf($0) == hint }) else { continue }
+            // Ranked: how close before `stop` the dot's station is (1 = right before it), then like the notebook's
+            // rule: stops ahead it still visits, then trips a day.
+            var matches = 0
+            for s in next8 where (p.last[s] ?? -1) >= i { matches += 1 }
+            let key = (-(i - h), matches, p.trips)
+            if bestKey == nil || key > bestKey! {
+                bestKey = key
+                best = p.stops[i - 1]
+            }
+        }
+        return best
+    }
+
     /// Same as omap.station_point(): the route's circle at the station, else the station's center.
     func stationPoint(route: String, station: String) -> CGPoint {
         let s = net.stations[station]!
@@ -315,31 +354,47 @@ final class Locator {
     ///   1. the current hop: arrives at the next stop at the predicted time, having left one scheduled
     ///      hop-time earlier (the same assumption `locate()` makes);
     ///   2. every following hop: leaves at the predicted departure, arrives at the predicted arrival.
-    /// MotionPlanner turns this into smooth animations.
-    func legs(for trip: Trip, now: Double) -> [Leg]? {
+    /// MotionPlanner turns this into smooth animations. `after`: the station the train's dot is at or heading to, if
+    /// known, which settles the hop it's on when the stops ahead fit more than one pattern (`previousStop(…after:)`).
+    func legs(for trip: Trip, now: Double, after hint: String? = nil) -> [Leg]? {
         let base = locate(trip, now: now)
-        guard base.how == "at station" || base.how.hasPrefix("between"),
-              let first = trip.upcoming.first else { return nil }
+        // The stops ahead that are stations on the map. The feed sometimes lists a stop that isn't one (R60S between
+        // Queensboro Plaza and Lexington Av/59 St, R65N between Court St and Whitehall St), and with it first the
+        // train's hop couldn't be worked out: the dot, already ahead at the next station, was moved back to the last.
+        let upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+        guard let first = upcoming.first else { return nil }
         let route = trip.routeID
         let stop0 = (trip.vehicleStop?.isEmpty == false) ? trip.vehicleStop! : first.stop
+        // Under way, as the notebook places it (standing at a station, or between two)…
+        let underWay = base.how == "at station" || base.how.hasPrefix("between")
+        // …or "leaving soon" from a station that also starts a shorter pattern (the 5 heading for Bowling Green, where
+        // some 5s begin), when the dot is already running this trip and stands a few stops before it, or at that very
+        // station (arrived a little ahead of the data): it's still under way. The notebook's rule sees only the stops
+        // ahead and parked it there, so the dot jumped ahead, or lost its place on the line and faded.
+        let continuing = base.how == "parked (leaving soon)" && trip.status != nil && hint.map {
+            $0 == stationOf(stop0) || previousStop(route: route, stop: stop0, upcoming: upcoming.map(\.stop), onlyAfter: $0) != nil
+        } == true
+        guard underWay || continuing else { return nil }
         var raw: [(from: String, to: String, depart: Double, arrive: Double)] = []
         let ahead: [StopTime]
-        if let i0 = trip.upcoming.firstIndex(where: { $0.stop == stop0 }) {
-            ahead = Array(trip.upcoming[i0...])
+        if let i0 = upcoming.firstIndex(where: { $0.stop == stop0 }) {
+            ahead = Array(upcoming[i0...])
             if trip.status != "STOPPED_AT",
-               let prev = previousStop(route: route, stop: stop0, upcoming: trip.upcoming.map(\.stop)) {
+               let prev = previousStop(route: route, stop: stop0, upcoming: upcoming.map(\.stop), after: hint) {
                 let hopTime = net.hopTimes["\(prev)>\(stop0)"] ?? net.settings.defaultHopS
                 raw.append((prev, stop0, ahead[0].time - hopTime, ahead[0].time))
             }
-        } else if trip.status == "STOPPED_AT",
-                  let before = previousStop(route: route, stop: first.stop, upcoming: trip.upcoming.map(\.stop)),
-                  let here = stationOf(stop0), stationOf(before) == here {
+        } else if trip.status == "STOPPED_AT", let here = stationOf(stop0),
+                  // The vehicle's station, as the hint: the E standing at Forest Hills-71 Av with Kew Gardens next runs
+                  // express between them, though the busiest E pattern into Kew Gardens comes from 75 Av.
+                  let before = previousStop(route: route, stop: first.stop, upcoming: upcoming.map(\.stop), after: here),
+                  stationOf(before) == here {
             // The vehicle still reports standing at a station its trip has already dropped from the stops ahead (the
             // two parts of the feed disagree for a moment as the train leaves): it is leaving there for the first
             // stop listed. Without this hop the train had no timeline and was moved straight to that station. Only
             // when that station comes right before the first stop listed: a vehicle report stuck several stations
             // back would otherwise make one long glide across the map.
-            ahead = trip.upcoming
+            ahead = upcoming
             let hopTime = net.hopTimes["\(stop0)>\(first.stop)"] ?? net.settings.defaultHopS
             raw.append((stop0, first.stop, first.time - hopTime, first.time))
         } else {
@@ -359,14 +414,23 @@ final class Locator {
     /// The first hop from station `a` toward station `b` along one of the route's stop patterns, for a train
     /// that has fallen behind and must catch up (the feed drops stations a train has passed, so they're not in
     /// its timeline any more). Nil if no pattern of the route runs from `a` to `b` within `maxHops` stops.
-    func catchUpLeg(route: String, from a: String, toward b: String, maxHops: Int) -> Leg? {
+    ///
+    /// Only patterns going the train's way: running on from `b` to `then` (the hop the train is on), or with platforms
+    /// of `direction` ("N" or "S", the end of the platform IDs). Without that, a pattern of the opposite direction that
+    /// happens to pass `a` before `b` sent the dot backwards.
+    func catchUpLeg(route: String, from a: String, toward b: String, maxHops: Int, then next: String? = nil,
+                    direction: Character? = nil) -> Leg? {
         for p in patternsByRoute[route] ?? [] {
+            // Direction: the pattern's platforms end in the train's N or S.
+            if let direction, p.stops.first?.last != direction { continue }
             var stations: [String] = []
             for platform in p.stops {
                 if let s = stationOf(platform), stations.last != s { stations.append(s) }
             }
             guard let i = stations.firstIndex(of: a), let j = stations[(i + 1)...].firstIndex(of: b),
                   j - i <= maxHops else { continue }
+            // Direction: the pattern carries on from `b` to the hop the train is on.
+            if let next, !(j + 1 < stations.count && stations[j + 1] == next) && b != next { continue }
             let next = stations[i + 1]
             return Leg(route: route, from: a, to: next, depart: 0, arrive: 0,
                        line: hopLine(route: route, from: a, to: next).line)
@@ -380,6 +444,16 @@ final class Locator {
         let own = lines[net.routes[route]?.color ?? ""] ?? []
         guard !own.isEmpty, !path.isEmpty else { return .infinity }
         let total = path.reduce(0.0) { sum, p in sum + Double(own.map { $0.nearest(to: p).distance }.min()!) }
+        return total / Double(path.count)
+    }
+
+    /// How far, on average, a path runs from the nearest drawn subway line of any color, in map units: about 0 when the
+    /// train rides some line's track (its own, or the one it shares: the 4 to New Lots Av on the 3's line), larger when
+    /// it cuts across the map. For checking (the line runs).
+    func distanceFromAnyLine(path: [CGPoint]) -> Double {
+        let all = lines.values.flatMap { $0 }
+        guard !all.isEmpty, !path.isEmpty else { return .infinity }
+        let total = path.reduce(0.0) { sum, p in sum + Double(all.map { $0.nearest(to: p).distance }.min()!) }
         return total / Double(path.count)
     }
 
@@ -582,6 +656,9 @@ final class Locator {
                       + walk(Array((j + 1)..<points.count)))
         return line.copy(strokingWithWidth: half * 2, lineCap: .round, lineJoin: .round, miterLimit: 2)  // round ends close joints
     }
+
+    /// A station's name ("59 St-Columbus Circle"), or its ID if it isn't on the map.
+    func stationName(_ station: String) -> String { net.stations[station]?.name ?? station }
 
     /// The station of a platform (nil if it isn't on the map).
     func stationOf(_ platform: String) -> String? {

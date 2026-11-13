@@ -42,6 +42,9 @@ class OfficialMap:
 
         # 1. route lines and station circles
         self.lines, _ = M.route_color_lines(self.drawing, COLOR)
+        # The track trains follow: the route lines plus the hatched part-time track (the 5 in the Bronx), which the
+        # station matching leaves out.
+        self.track_lines, _ = M.route_color_lines(self.drawing, COLOR, patterns=True)
         self.circles = M.station_circles(self.drawing, self.lines)
         labels = M.labels_index(self.drawing)
         # 2. first match using line colors only
@@ -204,7 +207,7 @@ class OfficialMap:
             if pa is None or pb is None:
                 self._hop_cache[key] = (None, False)
             else:
-                line, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(route), []))
+                line, followed = M.hop_line(pa, pb, self.track_lines.get(self.COLOR.get(route), []))
                 if not followed:
                     other = self.pair_line(a, b)
                     if other is not None:
@@ -223,7 +226,7 @@ class OfficialMap:
             for r in self.routes_between.get((a, b), []):
                 pa, pb = self.station_point(r, a), self.station_point(r, b)
                 if pa is not None and pb is not None:
-                    line, followed = M.hop_line(pa, pb, self.lines.get(self.COLOR.get(r), []))
+                    line, followed = M.hop_line(pa, pb, self.track_lines.get(self.COLOR.get(r), []))
                     if followed:
                         self._hop_cache[key] = line
                         break

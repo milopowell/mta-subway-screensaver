@@ -149,6 +149,34 @@ A line it merely runs beside, close enough to brush the edge of its band, doesn'
 
 Two test options check this across the whole map. `--overpass-audit` lists, for every hop, the lines ignored as only alongside. `--visibility-audit` walks every hop of every route one map unit at a time and compares where the app hides the train with where the map draws another line on top of it, from the map's drawing order alone (`--route R` for one route, `--png FILE` to mark disagreements on the map, `--json FILE` to export them). On 30 October 2026, after these fixes, wrongly hidden track was under 0.2% on every route and wrongly shown track under 1%; the remaining scheduled hops are off by 5 map units or less, almost all where a line meets a station's pill. The app then masks the dot inside that line's band, so it slips under the black border and comes out on the far side; `--overpasses ROUTE FROM TO` lists the bands a hop passes under.
 
+### Line runs: every line, end to end
+
+`--line-runs` sends one simulated train at a time along every stop pattern of every route (261 patterns: expresses, short runs, late-night locals and the rest), from its first station to its last, on the timetable, with a pretend download every 30 seconds. The app's own motion planner moves it, and every move its dot makes is checked:
+
+- **order:** each glide is the pattern's next hop, with no station skipped or visited out of turn;
+- **jumps and fades:** the dot never moves without gliding (including a glide cut short), never disappears before the run ends, and stands on its route's circle at each station;
+- **track:** every glide follows a drawn line (its own, or the one it shares, such as the 4 to New Lots Av on the 3's line), not much longer than the distance between the stations, and never turning back on itself;
+- **over and under:** where the app hides the dot matches where the map draws another line over its track, for 6 map units or more in a row (about a dot across);
+- **timing:** no catch-ups, and every arrival within 20 seconds of the timetable.
+
+It prints a table of problems per route and a numbered list of each distinct problem with how many trains a day it affects (`--route R` for one route, `--trace` for every glide of each run with a problem). `--png DIR` draws each route's glides on the map, solid where the dot shows and dashed where it's hidden under another line, with the problems ringed, plus a close-up of each problem. The sandbox runs the same checks on screen (see below).
+
+The first run, on 13 November 2026, found these, now fixed:
+
+- **Trains going backwards.** The feed gives only a train's stops ahead, so the planner guessed the stop it had just left from the route's busiest pattern. A 4 making late-night local stops at 116 St, heading for 125 St, was put on the express pattern from 86 St, and its dot ran back down the line to 86 St to "catch up" (the same for the late-night 2, the A, D, E, J and N). The planner now uses where the dot is: the stop before is the one in the pattern where the dot's station comes closest before the next stop (so a J express at Marcy Av runs straight to Myrtle Av, not through the local stations). And a catch-up hop only comes from a pattern going the train's way.
+- **Jumps where a shorter pattern starts.** Some 5s begin at Bowling Green, so a 5 heading there from Borough Hall looked like a train waiting to start its run, and its dot jumped across the harbor (126 trains a day; the M at Delancey St and the W at Whitehall St the same). A dot already running the trip now carries on.
+- **The 5 in the Bronx and the A to Rockaway Park** stepped sideways onto the neighboring line at every station: their own track there is hatched part-time track, which the notebook left out of the lines trains follow. §4 and §8 now include it (`route_strokes(…, patterns=True)`), for the track and for the drawing order, but not for the station matching.
+- **Overshoots** where two pieces of a line overlap (the F at 4 Av-9 St, the Q at Canal St, the W at Queensboro Plaza): the joined track stepped back a few units. `mtamap.match.without_reversals` removes those steps.
+
+Two more turned up in live data (`--path-audit`, which now gives the feed's state and the planner's reason for every jump):
+
+- **Stops that aren't stations.** The feed sometimes lists a stop ID that isn't a station on the map (R60S between Queensboro Plaza and Lexington Av/59 St, R65N between Court St and Whitehall St) as a train's next stop. With it first, the train's hop couldn't be worked out, and a dot already at the next station was moved back to the last (by 223 and 207 map units). The timeline now skips such stops.
+- **A vehicle report a stop behind.** An E standing at Forest Hills-71 Av, with Kew Gardens next, was taken to be coming from 75 Av (the busiest E pattern into Kew Gardens), so its dot, already at Kew Gardens, went back to 71 Av. Where the vehicle stands now settles it, as the dot's station does above.
+
+Five minutes of live trains afterwards (948 glides) had no jumps, no sideways slides and no glide off the drawn track.
+
+After the fixes, 6 problems remain in the line runs, all minor or rare: the late-night D at Atlantic Av-Barclays Ctr is hidden for its last 14 map units as it crosses the station's pill from the R's track to its own circle; the A at Broad Channel and the E to Parsons Blvd (5 trains a day each) briefly run over a line; and a once-a-day R reroute to Lexington Av/63 St.
+
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. A fix can also place a stop that has no circle at all: Aqueduct Racetrack, shown on the paper map only as a one-way-stop arrow. `--path-report` lists the remaining straight hops and draws them over the map.
 
 The maps are redrawn from the official PDF's own drawing instructions (`mtamap/pdfdraw.py`, `mtamap/style.py`), so they follow it closely:
@@ -328,7 +356,7 @@ The tram button in the bottom-right corner opens the home-station picker. Your c
 
 ### The sandbox
 
-SubwaySandbox is a separate app for sending trains by hand and trying out new features. It uses no live data and shares no settings with the preview app or the screensaver, only the drawing and motion code, so it moves a train you send exactly as the screensaver would move a real one. Choose a route, two of its stations and a pace, then Send. You can make a train run late or jump ahead to watch how the motion corrects. Build it with the scheme `SubwaySandbox`; details are in [swift/README.md](swift/README.md#sandbox).
+SubwaySandbox is a separate app for sending trains by hand and trying out new features. It uses no live data and shares no settings with the preview app or the screensaver, only the drawing and motion code, so it moves a train you send exactly as the screensaver would move a real one. Choose a route, two of its stations and a pace, then Send. You can make a train run late or jump ahead to watch how the motion corrects. **Line runs** play the line runs above on the map: one train at a time along a line's busiest pattern each way (or every pattern), or every line's in turn, with the problems listed and ringed in red; **Speed** runs the sandbox's clock up to 60 times faster, so a whole line takes a minute or two. Build it with the scheme `SubwaySandbox`; details are in [swift/README.md](swift/README.md#sandbox).
 
 ### iPhone and iPad
 
@@ -365,6 +393,7 @@ cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/Subwa
 | `$APP --time-lapse-report --record 420 --seconds 60` | Records live history for 7 minutes, replays it, and checks every glide starts where its dot is |
 | `$APP --path-audit --seconds 180` | Runs live motion and reports glides off the drawn track, position jumps, fades, short sideways moves (with what the feed said about each train and why the planner moved it), rerouted hops and the slowest glides |
 | `$APP --path-report out` | Checks the track every hop follows; writes `out.png` with straight hops in red |
+| `$APP --line-runs --png out` | Runs one train along every stop pattern of every line and checks every move its dot makes (see Line runs); `out/` gets a map per route and a close-up of each problem |
 | `$APP --picker-snapshot out.png --line A` | Renders the home-station picker (optionally browsing one line) |
 | `swiftc -O tools/test_saver.swift -o /tmp/test_saver && /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver` | Loads the built screensaver as macOS does, runs it on live data, renders it, measures CPU, and checks it stops on `willstop` |
 | `$APP --timing-report --seconds 180` | Compares each dot's arrival at, and departure from, a station with when the real train got there |

@@ -31,6 +31,8 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `gtfs-realtime.pb.swift` | Generated feed decoder (do not edit) |
 | `Locator.swift` | Places trains: an exact port of the notebook's `locate_from_export` (hops follow the exported `hop_paths`, and rerouted trains another line's track), plus each train's timeline of hops (`legs`), where each waiting train will leave toward, and which lines a train passes under |
 | `MotionPlanner.swift` | Turns timelines into motion: when each train stands, glides, waits, catches up or fades elsewhere |
+| `SimulatedFeed.swift` | A pretend feed: trains sent by hand (the sandbox) or along a whole stop pattern (the line runs), as the same trip records the MTA feeds produce |
+| `LineRun.swift` | Line runs: `LineRunCheck` checks every move one train's dot makes along a stop pattern (order, jumps, track, over and under, timing); `LineRunner` runs a pattern on a simulated clock |
 | `TrainLayers.swift` | Draws the trains (white dots when moving; route bullets pointing the way they leave, breathing, when waiting or parked) and runs the glide animations (Core Animation) |
 | `TripHistory.swift` | Records when each train actually reached and left each station, from successive downloads |
 | `TimeLapse.swift` | Replays that history at 20 times speed in a loop (same commands as MotionPlanner): a testing tool |
@@ -73,6 +75,7 @@ Preview app options (run the executable inside the app directly):
 - `--offline`: no live data from the start, so every line runs from the timetable (in the window, or in `--snapshot` and `--dump-placements`, where it also supplies the train data)
 - `--handoff-report [--seconds 90]`: start the motion planner on the timetable, switch it to live data, and report how the scheduled trains hand over to their live twins
 - `--path-report out`: check the track every hop follows; writes `out.png`
+- `--line-runs [--route R --png DIR --trace]`: one train along every stop pattern, first station to last, checking every move its dot makes; DIR gets a map per route and a close-up of each problem
 - `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps, fades, short sideways moves (with what the feed said about each train and why the planner moved it), rerouted hops and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker
 - `--time-lapse-report [--record 420 --seconds 60]`: record live history, replay it, and check the replay is smooth
@@ -95,11 +98,12 @@ open ~/mta-screensaver/swift/build/DerivedData/Build/Products/Release/SubwaySand
 
 - **Send a train:** pick a route and two of its stations, and a pace (as scheduled, or 2 or 4 times faster). The train waits 15 s, then runs stop by stop on the route's timetable. Send 10 random sends trains on random routes.
 - **Trains:** Delay 30 s and Jump ahead 60 s change a train's timetable, as when a real train runs late or the data catches up with it; the change arrives with the next update, so you can watch how the motion corrects. Remove takes a train out of the data.
-- **View:** magnification 1 to 10 times; click the map to center it there.
+- **Line runs:** pick a line (or All lines) and the busiest pattern each way or every pattern, then Run: one train at a time runs each pattern from its first station to its last, checked by `LineRunCheck` as in `--line-runs`. Problems are ringed in red on the map and listed; choosing one centers the map on it and says what happened. Follow the train keeps it in view.
+- **View:** magnification 1 to 10 times; click the map to center it there. **Speed** runs the sandbox's clock 10, 30 or 60 times faster than real time (each glide is shortened to match, so the planner sees exactly what it would at real speed).
 - **Feed:** updates every 30 s like the live feed, or every second.
 - **Dark map / Light map** switches the sandbox's map.
 
-`SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Two test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--snapshot out.png` renders the window after sending that train.
+`Shared/SimulatedFeed.swift` turns the trains you send into the same trip records the MTA feeds produce; `SandboxView.swift` runs them through the app's own `MotionPlanner` and `MapPanel`. Two test options (run the executable inside the app directly): `--check` runs the pretend feed on a simulated clock and prints every glide of a 1 train from 59 St-Columbus Circle to 14 St, then totals for 10 random trains; `--snapshot out.png` renders the window after sending that train (`--line-run ROUTE`: after 20 s of a line run of that route at 60×).
 
 ## Installing the screensaver
 

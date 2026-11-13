@@ -23,6 +23,9 @@ import AppKit
 //   --timing-report [--seconds S]        compare the dots' station arrivals/departures with the real trains
 //   --time-lapse-report [--record S --seconds S]  record live history, replay it, and check the replay is smooth
 //   --path-report <file>                 check the track every hop is drawn along; writes <file>.png
+//   --line-runs [--route R --png DIR --trace]  one train along every stop pattern, start to end, checking every move its dot
+//                                        makes (order, jumps, track, over and under); DIR gets a map per route
+//                                        and a close-up of each problem
 //   --path-audit [--seconds S]           run live motion and report off-track glides, snaps, fades, slow glides
 //   --overpasses ROUTE FROM TO           how many upper lines' bands a hop passes under
 //   --picker-snapshot <file.png> [--home IDs --line ROUTE]  render the home-station picker
@@ -250,7 +253,9 @@ if arguments.contains("--path-audit") {
                         sidewaysDetail.append("\(routeOf[key] ?? "?") \(nearest(p)) → \(nearest(point)) at +\(Int(tick - start)) s: " + describe(key, at: tick)
                                               + "\n        planner: " + (standReasons[key] ?? "?"))
                     }
-                    snaps.append((d, String(format: "%@ snapped %.0f units (to %.0f, %.0f)", routeOf[key] ?? "?", d, point.x, point.y)))
+                    snaps.append((d, String(format: "%@ snapped %.0f units (%@ to %@, %.0f, %.0f) at +%.0f s", routeOf[key] ?? "?", d,
+                                            nearest(p), nearest(point), point.x, point.y, tick - start)
+                                     + "\n      " + describe(key, at: tick) + "\n      planner: " + (standReasons[key] ?? "?")))
                     snapTimes.append(tick)
                 }
                 position[key] = point
@@ -370,6 +375,163 @@ if let output = value(after: "--picker-snapshot") {
     else { fail("png failed") }
     try png.write(to: URL(fileURLWithPath: output))
     print("wrote \(output) (\(Int(size.width))×\(Int(size.height)) pt)")
+    exit(0)
+}
+
+if arguments.contains("--line-runs") {
+    // Line runs (LineRun.swift): one train at a time along every stop pattern of every route (or one route: --route R),
+    // first station to last, moved by the app's own MotionPlanner on a simulated clock, with every move its dot makes
+    // checked against the map. --png DIR also draws each route's runs on the map: DIR/line-<route>.png.
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let network = hooks.network, locator = hooks.locator
+    let only = value(after: "--route")
+    let name = { (id: String) in locator.stationName(id) }
+    let routeOrder = { (a: String, b: String) in a.localizedStandardCompare(b) == .orderedAscending }
+
+    // Run every pattern, route by route.
+    var runs: [String: [LineRunner.Run]] = [:]
+    let clock = Date()
+    for pattern in network.patterns where only == nil || pattern.route == only {
+        if let run = LineRunner.run(pattern, network: network, locator: locator) { runs[pattern.route, default: []].append(run) }
+    }
+    let allRuns = runs.values.flatMap { $0 }
+    // --trace: for each run with problems, its stations and every glide (for tracking a problem down).
+    if arguments.contains("--trace") {
+        for run in allRuns.sorted(by: { routeOrder($0.pattern.route, $1.pattern.route) }) where !run.check.problems.isEmpty {
+            print("\(run.pattern.route) (\(run.pattern.trips) trains a day): " + run.check.stations.map(name).joined(separator: ", "))
+            for g in run.check.glides {
+                print(String(format: "    %@ → %@  %@, %.0f units", name(g.from), name(g.to), g.kind.rawValue, g.length))
+            }
+            for p in run.check.problems { print("    PROBLEM \(p.kind.rawValue): \(p.detail)") }
+        }
+    }
+    print(String(format: "%d runs (every stop pattern of %d routes) in %.0f s; %d glides", allRuns.count, runs.count,
+                 -clock.timeIntervalSinceNow, allRuns.map(\.check.glides.count).reduce(0, +)))
+
+    // Per route: how many of each problem (every occurrence, over all its patterns).
+    let kinds = LineRunCheck.Kind.allCases
+    print("\nroute  runs  glides  " + kinds.map(\.rawValue).joined(separator: " | "))
+    for (route, list) in runs.sorted(by: { routeOrder($0.key, $1.key) }) {
+        let problems = list.flatMap(\.check.problems)
+        let counts = kinds.map { kind in problems.filter { $0.kind == kind }.count }
+        print(String(format: "%-5@ %5d %7d  ", route, list.count, list.map(\.check.glides.count).reduce(0, +))
+              + counts.map(String.init).joined(separator: " | "))
+    }
+
+    // Each distinct problem once (the same kind on the same hop), numbered, with how many patterns show it and how
+    // many trains a day run those patterns.
+    struct Distinct { let problem: LineRunCheck.Problem; var patterns: Int; var trips: Int }
+    var distinct: [String: Distinct] = [:]
+    var order: [String] = []
+    for (_, list) in runs.sorted(by: { routeOrder($0.key, $1.key) }) {
+        for run in list {
+            var seenHere = Set<String>()
+            for problem in run.check.problems {
+                let key = "\(problem.kind.rawValue)|\(problem.route)|\(problem.from)|\(problem.to)"
+                guard seenHere.insert(key).inserted else { continue }
+                if distinct[key] == nil { order.append(key); distinct[key] = Distinct(problem: problem, patterns: 0, trips: 0) }
+                distinct[key]!.patterns += 1
+                distinct[key]!.trips += run.pattern.trips
+            }
+        }
+    }
+    print("\n\(order.count) distinct problems (kind and hop), numbered as on the --png maps:")
+    var numbers: [String: Int] = [:]
+    for (n, key) in order.enumerated() {
+        let d = distinct[key]!, p = d.problem
+        numbers[key] = n + 1
+        let hop = p.from == p.to ? "at \(name(p.from))" : "\(name(p.from)) → \(name(p.to))"
+        print(String(format: "  %3d. %@ %@: %@, %@ (%d pattern%@, %d trains a day; near %.0f, %.0f)", n + 1, p.route, hop,
+                     p.kind.rawValue, p.detail, d.patterns, d.patterns == 1 ? "" : "s", d.trips, p.at.x, p.at.y))
+    }
+
+    // Maps: each route's glides on the map, solid where the dot shows and dashed where it's hidden under another
+    // line, with each problem as a red ring and its number (DIR/line-<route>.png); and a close-up of each problem
+    // (DIR/problem-<number>.png), with only that hop's glide drawn.
+    if let dir = value(after: "--png") {
+        guard let url = SubwayView.resources.url(forResource: "map_black", withExtension: "pdf"), let document = MapDocument(url: url)
+        else { fail("map_black.pdf isn't bundled") }
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        /// Draws `area` of the map at `scale` pixels per map unit (dimmed by `dim`), the glides on it, and the rings
+        /// of the problems `marked`; writes it to `file`.
+        func draw(_ area: CGRect, scale: CGFloat, dim: CGFloat, glides: [MotionPlanner.Glide], marked: [String], to file: String) throws {
+            let size = CGSize(width: (area.width * scale).rounded(), height: (area.height * scale).rounded())
+            guard let map = document.renderImage(mapRect: area, pixelSize: size),
+                  let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { return }
+            // The map, dimmed so the runs stand out.
+            ctx.draw(map, in: CGRect(origin: .zero, size: size))
+            ctx.setFillColor(CGColor(gray: 0, alpha: dim))
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.scaleBy(x: scale, y: scale)
+            ctx.translateBy(x: -area.minX, y: -area.minY)
+            let unit = 3 / scale  // line widths and text sized in pixels, whatever the scale
+            // Each glide once (patterns share hops), split into shown and hidden pieces as the app hides the dot.
+            var drawn = Set<String>()
+            for glide in glides where drawn.insert("\(glide.from)|\(glide.to)").inserted {
+                let line = Polyline(glide.path)
+                guard line.length > 0 else { continue }
+                let bands = locator.overpasses(path: glide.path)
+                var along: CGFloat = 0, piece: [CGPoint] = [line.point(at: 0)]
+                var hidden = bands.contains { $0.contains(piece[0]) }
+                func stroke(_ pts: [CGPoint], hidden: Bool) {
+                    ctx.setStrokeColor(hidden ? CGColor(red: 1, green: 0.85, blue: 0.2, alpha: 1) : CGColor(gray: 1, alpha: 1))
+                    ctx.setLineWidth((hidden ? 1.2 : 1) * unit)
+                    ctx.setLineDash(phase: 0, lengths: hidden ? [2.5 * unit, 2 * unit] : [])
+                    ctx.addLines(between: pts)
+                    ctx.strokePath()
+                }
+                while along < line.length {
+                    along = min(along + 0.5, line.length)
+                    let p = line.point(at: along), h = bands.contains { $0.contains(p) }
+                    piece.append(p)
+                    if h != hidden || along >= line.length {
+                        stroke(piece, hidden: hidden)
+                        piece = [p]
+                        hidden = h
+                    }
+                }
+            }
+            ctx.setLineDash(phase: 0, lengths: [])
+            // Problems: a red ring and the number from the printed list.
+            for key in marked {
+                let p = distinct[key]!.problem.at
+                ctx.setStrokeColor(CGColor(red: 1, green: 0.15, blue: 0.15, alpha: 1))
+                ctx.setLineWidth(1.2 * unit)
+                ctx.strokeEllipse(in: CGRect(x: p.x - 5 * unit, y: p.y - 5 * unit, width: 10 * unit, height: 10 * unit))
+                let label = NSAttributedString(string: "\(numbers[key]!)", attributes: [
+                    .font: NSFont.boldSystemFont(ofSize: 7 * unit), .foregroundColor: NSColor(srgbRed: 1, green: 0.3, blue: 0.3, alpha: 1)])
+                ctx.textPosition = CGPoint(x: p.x + 6 * unit, y: p.y + 3 * unit)
+                CTLineDraw(CTLineCreateWithAttributedString(label), ctx)
+            }
+            guard let image = ctx.makeImage(),
+                  let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+            try png.write(to: URL(fileURLWithPath: file))
+        }
+
+        // A map per route: all its glides and problems.
+        for (route, list) in runs {
+            let glides = list.flatMap(\.check.glides)
+            let points = glides.flatMap(\.path)
+            guard !points.isEmpty else { continue }
+            let xs = points.map(\.x), ys = points.map(\.y)
+            let area = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+                .insetBy(dx: -30, dy: -30).intersection(document.bounds)
+            try draw(area, scale: 3, dim: 0.45, glides: glides, marked: order.filter { distinct[$0]!.problem.route == route },
+                     to: "\(dir)/line-\(route).png")
+        }
+        // A close-up per problem: 60 map units square at 8 pixels per unit, with that hop's glide.
+        for key in order {
+            let p = distinct[key]!.problem
+            let glides = (runs[p.route] ?? []).flatMap(\.check.glides).filter { $0.from == p.from && $0.to == p.to }
+            let area = CGRect(x: p.at.x - 30, y: p.at.y - 30, width: 60, height: 60)
+            try draw(area, scale: 8, dim: 0.2, glides: glides, marked: [key], to: "\(dir)/problem-\(numbers[key]!).png")
+        }
+        print("wrote \(runs.count) route maps and \(order.count) problem close-ups to \(dir)")
+    }
     exit(0)
 }
 

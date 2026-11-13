@@ -7,14 +7,20 @@ import QuartzCore
 /// ┌──────────────────────────────┬────────────┐
 /// │                              │ Send       │  route, from, to, pace
 /// │  the map (one MapPanel),     │ Trains     │  delay, jump ahead, remove
-/// │  click to center it there    │ View       │  magnification
+/// │  click to center it there    │ Line runs  │  every line, one train at a time, checked
+/// │                              │ View       │  magnification, speed
 /// │                              │ Feed       │  update interval, counts
 /// └──────────────────────────────┴────────────┘
 /// ```
 ///
 /// Trains come from SimulatedFeed instead of the MTA: no downloads, and nothing is shared with the preview app or
-/// the screensaver (no saved settings). Once a second the app's own MotionPlanner decides what every train does, and
-/// the app's own MapPanel draws it, exactly as in SubwayView.
+/// the screensaver (no saved settings). Once a second of the sandbox's clock the app's own MotionPlanner decides what
+/// every train does, and the app's own MapPanel draws it, exactly as in SubwayView. The clock can run faster than real
+/// time (Speed), so a whole line can be watched in minutes.
+///
+/// Line runs send one train at a time along every stop pattern of a line (or of every line), first station to last,
+/// and check every move its dot makes (LineRunCheck, the same checks as the preview app's --line-runs): problems are
+/// listed, and ringed in red on the map.
 final class SandboxView: NSView {
     private let network: SubwayNetwork
     private let locator: Locator
@@ -32,6 +38,18 @@ final class SandboxView: NSView {
     private var lastDownload = -Double.infinity
     private var trips: [Trip] = []
     private var timer: Timer?
+    /// The sandbox's clock (unix time). It starts at the real time and moves on one second per tick; at a speed above
+    /// 1 the ticks come faster, and each glide is shortened to match, so the planner sees exactly what it would at
+    /// real speed.
+    private var now = Date().timeIntervalSince1970
+    private var speed: Double = 1
+
+    // Line runs: the patterns still to run, the run under way, and the problems found so far.
+    private var lineQueue: [SubwayNetwork.Pattern] = []
+    private var lineRun: (check: LineRunCheck, train: SimulatedFeed.Train, number: Int, total: Int)?
+    private var lineProblems: [LineRunCheck.Problem] = []
+    /// Red rings on the map around the problems.
+    private let problemRings = CAShapeLayer()
     /// The map's frame and region when last laid out: the sidebar's text changing also lays the view out, and the map
     /// is only redrawn (and the dots recreated) when one of these changes.
     private var laidOut: (frame: CGRect, region: CGRect)?
@@ -50,6 +68,14 @@ final class SandboxView: NSView {
     private let status = NSTextField(labelWithString: "")
     private var listedTrains: [Int] = []
     private let themePopup = NSPopUpButton()
+    private let speedPopup = NSPopUpButton()
+    private let lineRoutePopup = NSPopUpButton()
+    private let linePatternsPopup = NSPopUpButton()
+    private let lineStatus = NSTextField(wrappingLabelWithString: "")
+    private let problemPopup = NSPopUpButton()
+    private let followBox = NSButton(checkboxWithTitle: "Follow the train", target: nil, action: nil)
+    /// Speed choices: how many seconds of the sandbox's clock pass each real second.
+    private static let speeds: [Double] = [1, 10, 30, 60]
 
     init?(size: NSSize) {
         guard let url = SubwayView.resources.url(forResource: "map_black", withExtension: "pdf"),
@@ -71,6 +97,11 @@ final class SandboxView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.addSublayer(panel.root)
+        // The line runs' problems, ringed in red over the map.
+        problemRings.fillColor = nil
+        problemRings.strokeColor = NSColor(srgbRed: 1, green: 0.2, blue: 0.2, alpha: 1).cgColor
+        problemRings.lineWidth = 2
+        layer?.addSublayer(problemRings)
         panel.overpasses = { [weak locator = self.locator] path in locator?.overpasses(path: path) ?? [] }
         panel.routeColors = colors  // trains waiting at stations show their route's bullet
         buildSidebar()
@@ -83,22 +114,68 @@ final class SandboxView: NSView {
     // ---- Running ----
 
     func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
+        startTimer()
         tick()
     }
 
-    /// Once a second: a pretend download when one is due, then the planner moves the trains.
+    /// Ticks once per second of the sandbox's clock: every real second at 1×, 60 times a second at 60×.
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / speed, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.now += 1
+            self.tick()
+        }
+    }
+
+    /// Each tick: a pretend download when one is due, then the planner moves the trains (through the line run's check
+    /// while one is under way).
     private func tick(downloadNow: Bool = false) {
-        let now = Date().timeIntervalSince1970
+        // Download.
         if downloadNow || now - lastDownload >= downloadInterval {
             trips = feed.snapshot(now: now)
             lastDownload = now
         }
-        panel.apply(planner.update(trips: trips, now: now))
+        // Plan, checking the line run's train.
+        let commands: [TrainCommand]
+        if let run = lineRun {
+            commands = run.check.step(planner, trips: trips, now: now)
+            planner.glideLog?.removeAll()  // the check has read the new glides
+        } else {
+            commands = planner.update(trips: trips, now: now)
+        }
+        // Draw, with glides shortened to the clock's speed.
+        panel.apply(scaled(commands))
+        // Line run: follow the train, and move on to the next pattern once it has left.
+        if let run = lineRun {
+            follow(run.check)
+            if run.check.ended && now >= run.train.departures[run.train.departures.count - 1]
+                || now > run.train.departures[run.train.departures.count - 1] + 120 {
+                finishLineRun()
+            }
+        }
+        // Status.
         let counts = planner.counts
         status.stringValue = "\(counts.moving) moving, \(counts.stopped) stopped; next update in "
             + "\(max(Int((lastDownload + downloadInterval - now).rounded()), 0)) s"
         refreshTrainList()
+    }
+
+    /// Commands with each glide's duration divided by the clock's speed (a glide of 20 s of the sandbox's clock takes
+    /// a third of a second at 60×).
+    private func scaled(_ commands: [TrainCommand]) -> [TrainCommand] {
+        guard speed != 1 else { return commands }
+        return commands.map { command in
+            if case .travel(let key, let path, let duration) = command {
+                return .travel(key: key, path: path, duration: duration / speed)
+            }
+            return command
+        }
+    }
+
+    @objc private func speedChanged() {
+        speed = Self.speeds[max(speedPopup.indexOfSelectedItem, 0)]
+        startTimer()
     }
 
     // ---- Map ----
@@ -114,7 +191,8 @@ final class SandboxView: NSView {
         panel.layout(frame: mapFrame, showing: region, scale: window?.backingScaleFactor ?? 2)
         // The map's coordinates changed: redraw every dot, glides continuing from where they are.
         panel.clearTrains()
-        panel.apply(planner.resync(now: Date().timeIntervalSince1970))
+        panel.apply(scaled(planner.resync(now: now)))
+        drawProblemRings()
     }
 
     /// A click on the map centers it there.
@@ -154,7 +232,7 @@ final class SandboxView: NSView {
               let from = fromPopup.selectedItem?.representedObject as? String,
               let to = toPopup.selectedItem?.representedObject as? String else { return }
         guard from != to else { return show("From and To are the same station.") }
-        guard let train = feed.send(route: route, from: from, to: to, pace: pace, now: Date().timeIntervalSince1970) else {
+        guard let train = feed.send(route: route, from: from, to: to, pace: pace, now: now) else {
             return show("No \(RouteSymbolsView.label(for: route)) service runs from that station to that one. "
                         + "Try swapping them, or a different route.")
         }
@@ -169,7 +247,6 @@ final class SandboxView: NSView {
     }
 
     @objc private func sendRandom() {
-        let now = Date().timeIntervalSince1970
         let sent = (0..<10).compactMap { _ in feed.sendRandom(stops: Int.random(in: 4...10), pace: pace, now: now) }
         show("Sent \(sent.count) trains on random routes. Show the whole map to see them all.")
         tick(downloadNow: true)
@@ -183,7 +260,7 @@ final class SandboxView: NSView {
     /// Shifts the selected train's timetable: the next update reports the change, as a real download would.
     private func changeTrain(by seconds: Double, _ what: String) {
         guard let id = selectedTrain else { return }
-        feed.shift(id, by: seconds, now: Date().timeIntervalSince1970)
+        feed.shift(id, by: seconds, now: now)
         show("Train \(trainPopup.titleOfSelectedItem ?? "") \(what); the change arrives with the next update.")
     }
 
@@ -248,6 +325,154 @@ final class SandboxView: NSView {
         }
         if let selected, let i = ids.firstIndex(of: selected) { trainPopup.selectItem(at: i) }
         trainPopup.isEnabled = !ids.isEmpty
+    }
+
+    // ---- Line runs ----
+
+    /// The patterns a line run covers: the chosen line's (or every line's), in route order; either the busiest pattern
+    /// each way (a quick tour) or every pattern (every variation: expresses, short runs, late nights).
+    private func linePatterns() -> [SubwayNetwork.Pattern] {
+        let chosen = lineRoutePopup.selectedItem?.representedObject as? String  // nil = all lines
+        let routes = network.routes.keys.filter { chosen == nil || $0 == chosen }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let everyPattern = linePatternsPopup.indexOfSelectedItem == 1
+        var out: [SubwayNetwork.Pattern] = []
+        for route in routes {
+            // Busiest first (whole runs before short ones and variations).
+            let patterns = network.patterns.filter { $0.route == route && feed.stops(of: $0).count >= 2 }
+                .sorted { $0.trips > $1.trips }
+            if everyPattern {
+                out += patterns
+            } else {
+                // The busiest each way: platform IDs end in N or S.
+                for direction in ["N", "S"] {
+                    if let busiest = patterns.first(where: { $0.stops.first?.hasSuffix(direction) == true }) { out.append(busiest) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// Run: starts the line runs (replacing any under way) and clears the problems found before.
+    @objc private func runLines() {
+        endLines(quietly: true)
+        lineQueue = linePatterns()
+        lineProblems = []
+        refreshProblems()
+        planner.glideLog = []  // the checks read every glide
+        startNextLineRun(total: lineQueue.count)
+    }
+
+    /// Stop: ends the line runs (the train under way leaves with the next update; the problems stay listed).
+    @objc private func stopLines() { endLines(quietly: false) }
+
+    private func endLines(quietly: Bool) {
+        if let run = lineRun { feed.remove(run.train.id) }
+        lineRun = nil
+        lineQueue = []
+        planner.glideLog = nil
+        if !quietly { lineStatus.stringValue = "Stopped. \(problemSummary)" }
+    }
+
+    /// Sends the next pattern's train from its first station, and centers the map there.
+    private func startNextLineRun(total: Int) {
+        guard !lineQueue.isEmpty else {
+            lineRun = nil
+            planner.glideLog = nil
+            lineStatus.stringValue = "Done: \(total) run\(total == 1 ? "" : "s"). \(problemSummary)"
+            return
+        }
+        let pattern = lineQueue.removeFirst()
+        guard let train = feed.send(pattern: pattern, pace: 1, now: now) else { return startNextLineRun(total: total) }
+        let check = LineRunCheck(route: pattern.route, stations: train.stations, key: "sandbox|T\(train.id)",
+                                 leavesAt: train.departures[train.departures.count - 1], locator: locator)
+        let number = total - lineQueue.count
+        lineRun = (check, train, number, total)
+        lineStatus.stringValue = "Run \(number) of \(total): \(train.label) (\(pattern.trips) trains a day). \(problemSummary)"
+        centerOn(train)
+        tick(downloadNow: true)  // appears at once rather than at the next update
+    }
+
+    /// The train has left: its check's last look (every station reached?), then the next pattern.
+    private func finishLineRun() {
+        guard let run = lineRun else { return }
+        run.check.finish(now: now)
+        lineProblems += run.check.problems
+        refreshProblems()
+        feed.remove(run.train.id)
+        startNextLineRun(total: run.total)
+    }
+
+    /// "No problems so far" / "3 problems so far".
+    private var problemSummary: String {
+        lineProblems.isEmpty ? "No problems so far." : "\(lineProblems.count) problem\(lineProblems.count == 1 ? "" : "s") so far."
+    }
+
+    /// Follow the train: when its dot (or where it's gliding to) nears the edge of the map, center the map on it.
+    private func follow(_ check: LineRunCheck) {
+        guard followBox.state == .on, let p = check.position else { return }
+        let shown = panel.mapRect.insetBy(dx: panel.mapRect.width * 0.2, dy: panel.mapRect.height * 0.2)
+        if !shown.contains(p) {
+            center = p
+            needsLayout = true
+        }
+    }
+
+    /// The Problems popup and the red rings, after a run adds problems.
+    private func refreshProblems() {
+        problemPopup.removeAllItems()
+        let title = lineProblems.isEmpty ? "No problems" : "\(lineProblems.count) problem\(lineProblems.count == 1 ? "" : "s")"
+        problemPopup.addItem(withTitle: title)
+        for (i, problem) in lineProblems.enumerated() {
+            let name = { (s: String) in self.locator.stationName(s) }
+            let hop = problem.from == problem.to ? "at \(name(problem.from))" : "\(name(problem.from)) to \(name(problem.to))"
+            let item = NSMenuItem(title: "\(i + 1). \(hop): \(problem.kind.rawValue)", action: nil, keyEquivalent: "")
+            item.representedObject = i
+            item.image = symbol(problem.route)
+            problemPopup.menu?.addItem(item)
+        }
+        problemPopup.isEnabled = !lineProblems.isEmpty
+        drawProblemRings()
+    }
+
+    /// Picking a problem centers the map on it (magnified at least 6×) and shows what happened.
+    @objc private func problemChosen() {
+        guard let i = problemPopup.selectedItem?.representedObject as? Int else { return }
+        let problem = lineProblems[i]
+        center = problem.at
+        if magnification < 6 {
+            zoomSlider.doubleValue = 6
+            zoomChanged()
+        }
+        needsLayout = true
+        show("\(RouteSymbolsView.label(for: problem.route)): \(problem.kind.rawValue), \(problem.detail).")
+    }
+
+    /// A red ring around each problem, in the map's coordinates on screen.
+    private func drawProblemRings() {
+        let rect = panel.mapRect, scale = panel.pointsPerUnit
+        let path = CGMutablePath()
+        for problem in lineProblems {
+            let p = CGPoint(x: (problem.at.x - rect.minX) * scale, y: (problem.at.y - rect.minY) * scale)
+            path.addEllipse(in: CGRect(x: p.x - 9, y: p.y - 9, width: 18, height: 18))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        problemRings.frame = panel.root.frame
+        problemRings.path = path
+        CATransaction.commit()
+    }
+
+    /// Starts a line run of one route (for the --snapshot test): its busiest pattern each way, at `speed`.
+    func runLineForSnapshot(route: String, speed: Double) {
+        if let i = lineRoutePopup.itemArray.firstIndex(where: { $0.representedObject as? String == route }) {
+            lineRoutePopup.selectItem(at: i)
+        }
+        if let i = Self.speeds.firstIndex(of: speed) {
+            speedPopup.selectItem(at: i)
+            speedChanged()
+        }
+        runLines()
     }
 
     // ---- Sidebar ----
@@ -335,6 +560,30 @@ final class SandboxView: NSView {
         themePopup.target = self
         themePopup.action = #selector(themeChanged)
 
+        // Line runs: which line (or all), which patterns, Run / Stop, the progress, and the problems found.
+        let allLines = NSMenuItem(title: "All lines", action: nil, keyEquivalent: "")
+        lineRoutePopup.menu?.addItem(allLines)
+        for route in routes {
+            let item = NSMenuItem(title: network.routes[route]?.name ?? route, action: nil, keyEquivalent: "")
+            item.representedObject = route
+            item.image = symbol(route)
+            lineRoutePopup.menu?.addItem(item)
+        }
+        linePatternsPopup.addItems(withTitles: ["Busiest pattern each way", "Every pattern"])
+        lineStatus.textColor = .secondaryLabelColor
+        lineStatus.preferredMaxLayoutWidth = sidebarWidth - 32
+        lineStatus.stringValue = "One train at a time along each pattern, start to end, checking every move."
+        problemPopup.addItem(withTitle: "No problems")
+        problemPopup.isEnabled = false
+        problemPopup.target = self
+        problemPopup.action = #selector(problemChosen)
+        problemPopup.widthAnchor.constraint(equalToConstant: sidebarWidth - 32).isActive = true
+        followBox.state = .on
+        // Speed: the sandbox's clock.
+        speedPopup.addItems(withTitles: Self.speeds.map { $0 == 1 ? "Real time" : "\(Int($0))× faster" })
+        speedPopup.target = self
+        speedPopup.action = #selector(speedChanged)
+
         let views: [NSView] = [
             header("Send a train"),
             row("Route", routePopup), row("From", fromPopup), row("To", toPopup), row("Pace", pacePopup),
@@ -344,8 +593,13 @@ final class SandboxView: NSView {
             trainPopup,
             NSStackView(views: [button("Delay 30 s", #selector(delayTrain)), button("Jump ahead 60 s", #selector(jumpTrain))]),
             NSStackView(views: [button("Remove", #selector(removeTrain)), button("Remove all", #selector(removeAll))]),
+            gap(), header("Line runs"),
+            row("Line", lineRoutePopup), row("Runs", linePatternsPopup),
+            NSStackView(views: [button("Run", #selector(runLines)), button("Stop", #selector(stopLines)), followBox]),
+            lineStatus, problemPopup,
             gap(), header("View"),
             zoomLabel, zoomSlider, help, NSStackView(views: [button("Whole map", #selector(showWholeMap)), themePopup]),
+            row("Speed", speedPopup),
             gap(), header("Feed"),
             feedPopup, status,
         ]
