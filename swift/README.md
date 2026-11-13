@@ -32,6 +32,7 @@ The project uses Xcode's folder-synced groups, so a file added to one of these f
 | `Locator.swift` | Places trains: an exact port of the notebook's `locate_from_export` (hops follow the exported `hop_paths`, and rerouted trains another line's track), plus each train's timeline of hops (`legs`), where each waiting train will leave toward, and which lines a train passes under |
 | `MotionPlanner.swift` | Turns timelines into motion: when each train stands, glides, waits, catches up or fades elsewhere |
 | `SimulatedFeed.swift` | A pretend feed: trains sent by hand (the sandbox) or along a whole stop pattern (the line runs), as the same trip records the MTA feeds produce |
+| `MotionAudit.swift` | Checks every train's moves from the commands it gets (jumps, going back, fading elsewhere, track, over and under), for replays of recordings and the time-lapse |
 | `LineRun.swift` | Line runs: `LineRunCheck` checks every move one train's dot makes along a stop pattern (order, jumps, track, over and under, timing); `LineRunner` runs a pattern on a simulated clock |
 | `TrainLayers.swift` | Draws the trains (white dots when moving; route bullets pointing the way they leave, breathing, when waiting or parked) and runs the glide animations (Core Animation) |
 | `TripHistory.swift` | Records when each train actually reached and left each station, from successive downloads |
@@ -75,7 +76,9 @@ Preview app options (run the executable inside the app directly):
 - `--offline`: no live data from the start, so every line runs from the timetable (in the window, or in `--snapshot` and `--dump-placements`, where it also supplies the train data)
 - `--handoff-report [--seconds 90]`: start the motion planner on the timetable, switch it to live data, and report how the scheduled trains hand over to their live twins
 - `--path-report out`: check the track every hop follows; writes `out.png`
-- `--line-runs [--route R --png DIR --trace]`: one train along every stop pattern, first station to last, checking every move its dot makes; DIR gets a map per route and a close-up of each problem
+- `--record-feeds DIR [--seconds 3600]`: save the live feeds every 30 s, for replaying (`../tools/record_feeds.sh` wraps it)
+- `--replay DIR [--time-lapse --json FILE --follow TRIP]`: replay a recording through the motion (or the time-lapse) and check every move; `--follow` traces one train
+- `--line-runs [--route R --png DIR --trace --json FILE]`: one train along every stop pattern, first station to last, checking every move its dot makes; DIR gets a map per route and a close-up of each problem
 - `--path-audit [--seconds 180]`: run live motion and report off-track glides, jumps, fades, short sideways moves (with what the feed said about each train and why the planner moved it), rerouted hops and slow glides
 - `--picker-snapshot out.png [--home IDs --line ROUTE]`: render the home-station picker
 - `--time-lapse-report [--record 420 --seconds 60]`: record live history, replay it, and check the replay is smooth

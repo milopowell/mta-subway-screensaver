@@ -186,4 +186,22 @@ extension Trip {
         guard let direction = rest.first, direction == "N" || direction == "S" else { return tripID }
         return "\(parts[0])_\(parts[1][..<dots])..\(direction)"
     }
+
+    /// The key each trip's dot goes by (MotionPlanner, TripHistory): "feed|identity", so a live train continues its
+    /// scheduled twin. Two trips of one feed can share an identity (a regular A and a supplementary one, 067300_A..N55R
+    /// and 067300_A..N20X002): then the one whose trip ID sorts first keeps it, and the others go by "feed|tripID".
+    /// Decided by the IDs rather than the order the feed lists them, so the two dots never swap between downloads.
+    static func keys(for trips: [Trip]) -> [String] {
+        // Who keeps each shared identity: the trip ID that sorts first.
+        var keeper: [String: String] = [:]
+        for trip in trips {
+            let key = "\(trip.feed)|\(trip.identity)"
+            if let kept = keeper[key], kept <= trip.tripID { continue }
+            keeper[key] = trip.tripID
+        }
+        return trips.map { trip in
+            let key = "\(trip.feed)|\(trip.identity)"
+            return keeper[key] == trip.tripID ? key : "\(trip.feed)|\(trip.tripID)"
+        }
+    }
 }

@@ -397,6 +397,20 @@ final class Locator {
             ahead = upcoming
             let hopTime = net.hopTimes["\(stop0)>\(first.stop)"] ?? net.settings.defaultHopS
             raw.append((stop0, first.stop, first.time - hopTime, first.time))
+        } else if trip.status == "STOPPED_AT", let hint, let k = upcoming.firstIndex(where: { stationOf($0.stop) == hint }) {
+            // The vehicle reports standing further back, while the dot has already reached one of the stops listed (a
+            // D's vehicle report stuck at Bedford Park Blvd for minutes as its stops moved on, the passed ones still
+            // listed): the dot leaves from there, and the stops listed before it are behind it.
+            ahead = Array(upcoming[k...])
+        } else if trip.status == "STOPPED_AT", let hint,
+                  let before = previousStop(route: route, stop: first.stop, upcoming: upcoming.map(\.stop), onlyAfter: hint),
+                  stationOf(before) == hint {
+            // The vehicle reports standing further back than the station the dot has reached, which comes right before
+            // the first stop listed (an E at Spring St reported back at Canal St, with W 4 St next): the dot is ahead,
+            // and leaves from where it is for that stop.
+            ahead = upcoming
+            let hopTime = net.hopTimes["\(before)>\(first.stop)"] ?? net.settings.defaultHopS
+            raw.append((before, first.stop, first.time - hopTime, first.time))
         } else {
             return nil
         }
@@ -655,6 +669,25 @@ final class Locator {
         line.addLines(between: walk(Array(stride(from: j, through: 0, by: -1))).reversed() + [hit]
                       + walk(Array((j + 1)..<points.count)))
         return line.copy(strokingWithWidth: half * 2, lineCap: .round, lineJoin: .round, miterLimit: 2)  // round ends close joints
+    }
+
+    /// The trip as motion sees it: without the stops that aren't stations on the map, and with no vehicle stop if that
+    /// isn't one (it is then on its way to its first stop on the map). The feed gives the R under the East River its
+    /// next stop as R60N, a stop that isn't a station, for a couple of minutes: the notebook's rule hides a train it
+    /// can't place, so its dot faded out at Lexington Av/59 St and back in at Queens Plaza. (`locate` itself keeps the
+    /// notebook's rule.)
+    func onMap(_ trip: Trip) -> Trip {
+        let upcoming = trip.upcoming.filter { stationOf($0.stop) != nil }
+        let vehicleOnMap = trip.vehicleStop.map { $0.isEmpty || stationOf($0) != nil } ?? true
+        if upcoming.count == trip.upcoming.count && vehicleOnMap { return trip }
+        return Trip(feed: trip.feed, tripID: trip.tripID, routeID: trip.routeID,
+                    status: vehicleOnMap || trip.status == nil ? trip.status : "IN_TRANSIT_TO",
+                    vehicleStop: vehicleOnMap ? trip.vehicleStop : nil, upcoming: upcoming)
+    }
+
+    /// The name of the station whose center is nearest `point` (for problems' details).
+    func nearestStationName(to point: CGPoint) -> String {
+        net.stations.values.min { hypot($0.center[0] - point.x, $0.center[1] - point.y) < hypot($1.center[0] - point.x, $1.center[1] - point.y) }?.name ?? "?"
     }
 
     /// A station's name ("59 St-Columbus Circle"), or its ID if it isn't on the map.

@@ -54,6 +54,10 @@ final class MotionPlanner {
     /// Longest a hop's glide may be: a hop drawn long on the map (96 St to 110 St on the 2 and 3, around Central
     /// Park) glides faster instead of crawling for minutes; it still arrives on time.
     var maxTravelSeconds: Double = 40
+    /// A train missing from the data keeps its dot this long (a little over one download) before it fades out: the MTA
+    /// sometimes leaves a train out of one download, and removing it at once made the dot start again from the station
+    /// the next download gave, behind where it already was (a G held at 4 Av-9 St, its dot already at 7 Av).
+    var goneAfter: Double = 35
 
     /// Counters, for checking behavior (e.g. from the preview app's --plan-report).
     struct Stats { var travels = 0, catchUps = 0, teleports = 0, waitsAhead = 0, teleportReasons: [String: Int] = [:] }
@@ -93,6 +97,8 @@ final class MotionPlanner {
     private var why = ""
     /// Corrections waiting for their train's delay: what the correction is, and when it may happen.
     private var pendingCorrections: [String: (what: String, due: Double)] = [:]
+    /// Trains missing from the data, and since when (see `goneAfter`).
+    private var missingSince: [String: Double] = [:]
     /// Where the data has been asking a standing train to move, and since when (see `settleSeconds`).
     private var standingMoves: [String: (point: CGPoint, since: Double)] = [:]
     private let locator: Locator
@@ -121,11 +127,11 @@ final class MotionPlanner {
     func update(trips: [Trip], now: Double) -> [TrainCommand] {
         var commands: [TrainCommand] = []
         var seen = Set<String>()
-        for trip in trips {
-            // Keyed by the MTA's trip code, so a live train continues as the same dot as its scheduled twin when live
-            // data returns (Trip.identity); by the whole ID if two trips ever share a code.
-            var key = "\(trip.feed)|\(trip.identity)"
-            if seen.contains(key) { key = "\(trip.feed)|\(trip.tripID)" }
+        // Keyed by the MTA's trip code, so a live train continues as the same dot as its scheduled twin when live data
+        // returns (Trip.identity); by the whole ID for a second trip with the same code (Trip.keys).
+        for (listed, key) in zip(trips, Trip.keys(for: trips)) {
+            // Only the stops that are stations on the map (Locator.onMap).
+            let trip = locator.onMap(listed)
             let base = locator.locate(trip, now: now)  // the notebook's rules decide whether it's shown
             guard let basePoint = base.point else { continue }
             seen.insert(key)
@@ -154,16 +160,26 @@ final class MotionPlanner {
             }
             // The hop the predictions say the train is on (or about to start); nil = past its last prediction.
             guard let current = legs.first(where: { now <= $0.arrive }) else {
+                // Running later than its last prediction: it stands at the last station, once its glide is over (never
+                // interrupt a hop: standing it there at once snapped the dot the rest of the way, at the end of a run).
+                if case .traveling(_, let start, let duration, _)? = phases[key], now < start + duration { continue }
                 let last = legs[legs.count - 1]
                 why = "past its last prediction"
                 commands += stop(key, station: last.to, point: locator.standPoint(route: last.route, station: last.to, from: last.from),
                                  look: .stopped, now: now, route: last.route)
                 continue
             }
+            standingMoves[key] = nil  // following a timeline: an earlier request to stand it elsewhere no longer holds
             commands += advance(key, legs: legs, current: current, now: now)
         }
-        // Trains no longer in the data (run finished, or reassigned) fade out, each in its turn.
-        for key in phases.keys where !seen.contains(key) && correctionDue(key, "gone", now: now) {
+        // Trains no longer in the data (run finished, or reassigned) fade out, each in its turn, once they've been
+        // missing for `goneAfter` seconds (a train back in the next download carries on where its dot is).
+        for key in seen { missingSince[key] = nil }
+        for key in phases.keys where !seen.contains(key) { missingSince[key] = missingSince[key] ?? now }
+        for key in phases.keys where !seen.contains(key) && now - missingSince[key]! >= goneAfter
+            && correctionDue(key, "gone", now: now) {
+            missingSince[key] = nil
+            standTrace?(key, "gone: not in the data, or not placed", "\(phases[key].map { "\($0)" } ?? "-")".prefix(80).description)
             phases[key] = nil
             pendingCorrections[key] = nil
             standingMoves[key] = nil
@@ -244,6 +260,18 @@ final class MotionPlanner {
                 pendingCorrections[key] = nil
                 return []  // we're ahead of the predictions: keep waiting here until they catch up
             }
+            // Standing part-way along the track of the train's hop: a station it now runs through (the E through Spring
+            // St, when the feed switched it to Canal St to W 4 St with its dot already at Spring St). It carries on from
+            // there when the hop is due to leave, rather than fading back to the hop's start.
+            let on = current.line.nearest(to: point)
+            if let station, on.distance < 4, on.along > 2, on.along < current.line.length - 2 {
+                pendingCorrections[key] = nil
+                guard now >= departAt else { return [] }  // waits here, ahead
+                let rest = current.line.piece(from: on.along, to: current.line.length)
+                let leg = Locator.Leg(route: current.route, from: station, to: current.to, depart: now, arrive: current.arrive, line: rest)
+                let duration = min(max(current.arrive - now, Double(rest.length) / catchUpSpeed, minTravelSeconds / 2), maxTravelSeconds)
+                return travel(key, leg: leg, path: rest.points, duration: duration, now: now)
+            }
             // Fresh data says the train is further along or somewhere else: correct it, but only when this train's
             // turn comes (meanwhile it waits where it is).
             guard correctionDue(key, "from \(station ?? "parked") toward \(current.from)", now: now) else { return [] }
@@ -261,6 +289,7 @@ final class MotionPlanner {
                    : (locator.catchUpLeg(route: current.route, from: station!, toward: current.from, maxHops: 40, then: current.to) != nil
                       ? "behind by more than 4 stops" : "not on this route's patterns"))
             stats.teleportReasons[reason, default: 0] += 1
+            standTrace?(key, "faded across: \(reason), toward \(current.from)>\(current.to)", "standing at \(station ?? "no station")")
             phases[key] = nil
             return [.remove(key: key)] + advance(key, legs: legs, current: current, now: now)
         }
@@ -391,7 +420,7 @@ final class MotionPlanner {
 
     /// Forgets every train (e.g. when the time-lapse takes over), returning commands that fade their dots out.
     func reset() -> [TrainCommand] {
-        defer { phases = [:]; standingMoves = [:] }
+        defer { phases = [:]; standingMoves = [:]; missingSince = [:] }
         return phases.keys.map { .remove(key: $0) }
     }
 

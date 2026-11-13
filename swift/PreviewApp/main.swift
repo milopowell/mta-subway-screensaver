@@ -23,7 +23,9 @@ import AppKit
 //   --timing-report [--seconds S]        compare the dots' station arrivals/departures with the real trains
 //   --time-lapse-report [--record S --seconds S]  record live history, replay it, and check the replay is smooth
 //   --path-report <file>                 check the track every hop is drawn along; writes <file>.png
-//   --line-runs [--route R --png DIR --trace]  one train along every stop pattern, start to end, checking every move its dot
+//   --record-feeds DIR [--seconds S]     save the live feeds every 30 s for S seconds (3600), for --replay
+//   --replay DIR [--time-lapse --json F --follow TRIP] replay a recording through the motion (or the time-lapse) and check every move
+//   --line-runs [--route R --png DIR --trace --json F]  one train along every stop pattern, start to end, checking every move its dot
 //                                        makes (order, jumps, track, over and under); DIR gets a map per route
 //                                        and a close-up of each problem
 //   --path-audit [--seconds S]           run live motion and report off-track glides, snaps, fades, slow glides
@@ -238,8 +240,8 @@ if arguments.contains("--path-audit") {
             done.wait()
             cache.receive(result!.feeds, at: result!.fetchedAt)
             trips = cache.trips
-            for trip in trips { routeOf["\(trip.feed)|\(trip.identity)"] = trip.routeID }  // the planner's key
-            tripOf = Dictionary(trips.map { ("\($0.feed)|\($0.identity)", $0) }, uniquingKeysWith: { a, _ in a })
+            for (trip, key) in zip(trips, Trip.keys(for: trips)) { routeOf[key] = trip.routeID }  // the planner's key
+            tripOf = Dictionary(zip(Trip.keys(for: trips), trips), uniquingKeysWith: { a, _ in a })
             lastDownload = tick
             downloads.append(tick)
         }
@@ -378,6 +380,159 @@ if let output = value(after: "--picker-snapshot") {
     exit(0)
 }
 
+if let output = value(after: "--record-feeds") {
+    // Records the live feeds for replaying (--replay): a download every 30 s, like the app, for --seconds (default
+    // 3600), each saved as it came: <output>/<unix time>/<feed>.pb (a feed that failed has no file that round).
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let settings = hooks.network.settings
+    let seconds = Double(value(after: "--seconds") ?? "3600") ?? 3600
+    let start = Date().timeIntervalSince1970
+    var round = 0
+    while Date().timeIntervalSince1970 < start + seconds {
+        // Download (on a background task, waited for here).
+        let at = Date().timeIntervalSince1970
+        var feeds: [String: Data] = [:]
+        let done = DispatchSemaphore(value: 0)
+        Task.detached { feeds = await FeedClient.fetchRaw(settings: settings); done.signal() }
+        done.wait()
+        // Save the round.
+        let dir = URL(fileURLWithPath: output).appendingPathComponent(String(Int(at)))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for (feed, data) in feeds { try data.write(to: dir.appendingPathComponent("\(feed).pb")) }
+        round += 1
+        print("\(round): \(feeds.count) of \(settings.feeds.count) feeds at \(Date(timeIntervalSince1970: at))")
+        fflush(stdout)
+        // Next round 30 s after this one started.
+        Thread.sleep(forTimeInterval: max(0, at + 30 - Date().timeIntervalSince1970))
+    }
+    exit(0)
+}
+
+if let dir = value(after: "--replay") {
+    // Replays a recording (--record-feeds) through the app's motion, a tick a second with each round of downloads at
+    // the time it was made, and checks every train's moves (MotionAudit). Feeds with no data run from the timetable, as
+    // in the app. --time-lapse: instead, records the history from the recording and plays the time-lapse over it.
+    // --json FILE writes the counts (for tools/check.sh).
+    guard let hooks = SubwayView(frame: .zero).testHooks else { fail("network.json isn't bundled") }
+    let network = hooks.network, locator = hooks.locator
+    // The rounds, in order: <dir>/<unix time>/<feed>.pb.
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+    let rounds = names.compactMap { name in Double(name).map { (time: $0, dir: URL(fileURLWithPath: dir).appendingPathComponent(name)) } }
+        .sorted { $0.time < $1.time }
+    guard let firstRound = rounds.first, let lastRound = rounds.last else { fail("no recorded rounds in \(dir)") }
+    let audit = MotionAudit(locator: locator)
+    var routeOf: [String: String] = [:], tripOf: [String: Trip] = [:]
+    audit.routeOf = { routeOf[$0] }
+    var cache = FeedCache(feeds: network.settings.feeds, keepFor: network.settings.staleAfterS)
+    let schedule = Schedule.loadBundled()
+    let timeLapse = arguments.contains("--time-lapse")
+
+    if timeLapse {
+        // Time-lapse: the history of the whole recording, then the time-lapse's loop over it (20 times speed, a tick
+        // every 0.25 s) for as long as the recording lasted divided by 20, plus a margin.
+        let history = TripHistory(platforms: network.platforms, keep: lastRound.time - firstRound.time + 600)
+        for round in rounds {
+            cache.receive(FeedClient.loadEach(fromDirectory: round.dir, settings: network.settings), at: round.time)
+            history.observe(cache.trips, at: round.time)
+        }
+        for record in history.records { routeOf[record.key] = record.value.route }
+        let lapse = TimeLapse(locator: locator)
+        lapse.minimumHistory = min(lapse.minimumHistory, lastRound.time - firstRound.time - 30)
+        let wallSeconds = (lastRound.time - firstRound.time) / 20 + 30
+        var wall = lastRound.time, lastClock = -Double.infinity, loops = 0
+        while wall < lastRound.time + wallSeconds {
+            let commands = lapse.update(history: history, wall: wall)
+            // A new loop (the replay's clock went back): the audit starts afresh too.
+            if let clock = lapse.clock(wall: wall) {
+                if clock < lastClock { audit.restart(); loops += 1 }
+                lastClock = clock
+            }
+            audit.observe(commands, now: wall)
+            wall += 0.25
+        }
+        print(String(format: "time-lapse over %d rounds (%.0f min of history), %.0f s of replay: %d glides",
+                     rounds.count, (lastRound.time - firstRound.time) / 60, wallSeconds, audit.glides))
+    } else {
+        // Live motion: the planner every second; each round arrives at its own time.
+        let planner = MotionPlanner(locator: locator)
+        var reasons: [String: String] = [:], clock = firstRound.time
+        planner.standTrace = { key, why, before in reasons[key] = "\(why) (was \(before))" }
+        audit.explain = { key in
+            guard let trip = tripOf[key] else { return nil }
+            let next = trip.upcoming.prefix(2).map { locator.stationOf($0.stop).map(locator.stationName) ?? $0.stop }
+            return "\(trip.tripID): \(trip.status ?? "no train") \(trip.vehicleStop.map { locator.stationOf($0).map(locator.stationName) ?? $0 } ?? "-"), "
+                + "next \(next.joined(separator: ", ")); placed \(locator.locate(trip, now: clock).how); planner: \(reasons[key] ?? "-")"
+        }
+        var next = 0, trips: [Trip] = [], scheduled: (at: Double, trips: [Trip])?
+        var t = firstRound.time
+        while t <= lastRound.time + 30 {
+            // A round due: take it in, as FeedHub would.
+            if next < rounds.count, rounds[next].time <= t {
+                cache.receive(FeedClient.loadEach(fromDirectory: rounds[next].dir, settings: network.settings), at: rounds[next].time)
+                next += 1
+            }
+            // The trains: live, plus the timetable's on lines without data (rebuilt every 15 s, as SubwayView does).
+            trips = cache.trips
+            if let schedule, !cache.withoutData.isEmpty {
+                if scheduled == nil || t - scheduled!.at >= 15 {
+                    scheduled = (t, schedule.trips(at: t, feeds: cache.withoutData, parkWindow: network.settings.parkWindowS))
+                }
+                trips += scheduled!.trips
+            } else {
+                scheduled = nil
+            }
+            for (trip, key) in zip(trips, Trip.keys(for: trips)) {  // keyed as the planner keys them
+                routeOf[key] = trip.routeID
+                tripOf[key] = trip
+            }
+            clock = t
+            let commands = planner.update(trips: trips, now: t)
+            // --follow TEXT: every trip whose ID contains TEXT, each round (what the feed said) and each command.
+            if let follow = value(after: "--follow") {
+                let name = { (stop: String) in locator.stationOf(stop).map(locator.stationName) ?? stop }
+                if next > 0, rounds[next - 1].time == t {
+                    for trip in trips where trip.tripID.contains(follow) {
+                        print(String(format: "+%4.0f s  %@ %@: %@ %@, next %@", t - firstRound.time, trip.feed.isEmpty ? "(timetable)" : trip.feed,
+                                     trip.tripID, trip.status ?? "no train", trip.vehicleStop.map(name) ?? "-",
+                                     trip.upcoming.prefix(3).map { "\(name($0.stop)) \(Int($0.time - t)) s" }.joined(separator: ", ")))
+                    }
+                }
+                // Every 10 s: where the notebook's rule places it, and its first hop.
+                if Int(t - firstRound.time) % 10 == 5 || arguments.contains("--every-tick") {
+                    for trip in trips where trip.tripID.contains(follow) {
+                        let legs = locator.legs(for: trip, now: t)
+                        print(String(format: "+%4.0f s      placed %@; hop %@", t - firstRound.time, locator.locate(trip, now: t).how,
+                                     legs?.first.map { "\(locator.stationName($0.from)) to \(locator.stationName($0.to)), arrives in \(Int($0.arrive - t)) s" } ?? "none"))
+                    }
+                }
+                for command in commands {
+                    let key: String
+                    switch command { case .place(let k, _, _, _, _), .travel(let k, _, _), .remove(let k): key = k }
+                    if key.contains(follow) { print(String(format: "+%4.0f s      ", t - firstRound.time) + "\(command)".prefix(140)) }
+                }
+            }
+            audit.observe(commands, now: t)
+            t += 1
+        }
+        print(String(format: "replayed %d rounds (%.0f min): %d glides; planner's reasons for fades: %@", rounds.count,
+                     (lastRound.time - firstRound.time) / 60, audit.glides, "\(planner.stats.teleportReasons)"))
+    }
+
+    // Report: counts, then each problem (up to 15 of each kind).
+    for kind in MotionAudit.Kind.allCases {
+        let list = audit.problems.filter { $0.kind == kind }
+        print("\(kind.rawValue): \(list.count)")
+        for p in list.prefix(15) {
+            print(String(format: "    %@ at +%.0f s: %@", p.route, p.time - firstRound.time, p.detail))
+        }
+    }
+    if let json = value(after: "--json") {
+        try JSONSerialization.data(withJSONObject: audit.summary, options: [.sortedKeys, .prettyPrinted])
+            .write(to: URL(fileURLWithPath: json))
+    }
+    exit(0)
+}
+
 if arguments.contains("--line-runs") {
     // Line runs (LineRun.swift): one train at a time along every stop pattern of every route (or one route: --route R),
     // first station to last, moved by the app's own MotionPlanner on a simulated clock, with every move its dot makes
@@ -434,6 +589,14 @@ if arguments.contains("--line-runs") {
                 distinct[key]!.trips += run.pattern.trips
             }
         }
+    }
+    // --json FILE: the counts (for tools/check.sh): every occurrence of each kind, and the distinct problems.
+    if let json = value(after: "--json") {
+        var summary: [String: Int] = ["runs": allRuns.count, "glides": allRuns.map(\.check.glides.count).reduce(0, +),
+                                      "distinct problems": distinct.count]
+        let problems = allRuns.flatMap(\.check.problems)
+        for kind in kinds { summary[kind.rawValue] = problems.filter { $0.kind == kind }.count }
+        try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]).write(to: URL(fileURLWithPath: json))
     }
     print("\n\(order.count) distinct problems (kind and hop), numbered as on the --png maps:")
     var numbers: [String: Int] = [:]

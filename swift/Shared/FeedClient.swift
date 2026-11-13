@@ -116,6 +116,39 @@ enum FeedClient {
     }
 
     /// Reads feeds saved as <dir>/<feed>.pb (for testing against the notebook on identical data).
+    /// For recording (the preview app's --record-feeds): downloads every feed at once, as `fetchEach` does, and returns
+    /// the raw data of each one that succeeded (same rules: HTTP 200, readable, with trips), keyed by feed.
+    static func fetchRaw(settings: SubwayNetwork.Settings) async -> [String: Data] {
+        await withTaskGroup(of: (String, Data?).self) { group in
+            for feed in settings.feeds {
+                group.addTask {
+                    let url = URL(string: settings.feedURL.replacingOccurrences(of: "{}", with: feed))!
+                    // Download, then check it reads and has trips (a failed feed is left out, as in the app).
+                    guard let (data, response) = try? await session.data(from: url),
+                          (response as? HTTPURLResponse)?.statusCode == 200,
+                          let message = try? TransitRealtime_FeedMessage(serializedBytes: data),
+                          !trips(from: message, feed: feed).isEmpty else { return (feed, nil) }
+                    return (feed, data)
+                }
+            }
+            var collected: [String: Data] = [:]
+            for await (feed, data) in group { collected[feed] = data }
+            return collected
+        }
+    }
+
+    /// The trips of the feeds saved in `dir` (one `<feed>.pb` each); a feed with no file is left out (it failed when
+    /// recorded). For replaying recordings.
+    static func loadEach(fromDirectory dir: URL, settings: SubwayNetwork.Settings) -> [String: [Trip]] {
+        var out: [String: [Trip]] = [:]
+        for feed in settings.feeds {
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent("\(feed).pb")),
+                  let message = try? TransitRealtime_FeedMessage(serializedBytes: data) else { continue }
+            out[feed] = trips(from: message, feed: feed)
+        }
+        return out
+    }
+
     static func load(fromDirectory dir: URL, settings: SubwayNetwork.Settings) throws -> [Trip] {
         try settings.feeds.flatMap { feed in
             let data = try Data(contentsOf: dir.appendingPathComponent("\(feed).pb"))

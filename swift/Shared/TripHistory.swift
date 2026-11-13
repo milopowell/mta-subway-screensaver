@@ -67,8 +67,7 @@ final class TripHistory {
         firstObserved = firstObserved ?? at
         lastObserved = at
         var present = Set<String>()
-        for trip in trips {
-            let key = "\(trip.feed)|\(trip.identity)"  // as the motion planner keys trains
+        for (trip, key) in zip(trips, Trip.keys(for: trips)) {  // keyed as the motion planner keys trains
             present.insert(key)
             let standingAt = trip.status == "STOPPED_AT" ? trip.vehicleStop.flatMap { platforms[$0] } : nil
             var listed: [String: Seen] = [:]

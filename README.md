@@ -177,6 +177,28 @@ Five minutes of live trains afterwards (948 glides) had no jumps, no sideways sl
 
 After the fixes, 6 problems remain in the line runs, all minor or rare: the late-night D at Atlantic Av-Barclays Ctr is hidden for its last 14 map units as it crosses the station's pill from the R's track to its own circle; the A at Broad Channel and the E to Parsons Blvd (5 trains a day each) briefly run over a line; and a once-a-day R reroute to Lexington Av/63 St.
 
+### The motion check: recordings replayed
+
+The line runs use a pretend feed, which is tidy; the real one isn't, and several bugs only showed up in live data. So real downloads can be recorded and replayed, and one command checks everything against the last good results:
+
+```bash
+zsh tools/record_feeds.sh 60      # record an hour of the live feeds into data/recordings/ (about 17 MB an hour)
+zsh tools/check.sh                # build, then the line runs and every recording replayed; fails if any count went up
+zsh tools/check.sh --update       # after checking a change is good: save these results as the reference
+```
+
+`--replay DIR` plays a recording through the app's own motion, a tick a second with each download arriving when it was made (and the timetable for any line without data, as in the app), and `MotionAudit` checks every train's moves: jumps (including glides cut short), going back to a place the dot already stood, fading to another place, glides off every drawn line or turning back, and over and under against the drawing order. `--replay DIR --time-lapse` builds the history from the recording and checks the time-lapse's loop over it the same way. `--follow TRIP` prints what the feed said about a train each download, where the notebook's rule places it, and every command its dot got: the way to track a problem down. Recordings, results and the reference stay in `data/`, out of the repository. Late nights and weekends are worth recording, when trains run their odd patterns; and a recording of something that looked wrong can be kept, so the check replays it after every change.
+
+The first recording (13 November 2026, midday) found these, now fixed:
+
+- **Glides cut short at the end of a run:** a train later than its last prediction was stood at its last station at once, snapping the dot the rest of the way.
+- **A train missing from one download:** the MTA sometimes leaves a train out of one download. Its dot was removed at once, then started again from the station the next download gave, behind where it had been (a G held at 4 Av-9 St, its dot already at 7 Av). A train now keeps its dot for 35 seconds, a little over one download.
+- **Stops that aren't stations, again:** under the East River the R's next stop is R60N for a couple of minutes, and the notebook's rule hides a train it can't place, so its dot faded out at Lexington Av/59 St and in at Queens Plaza. Motion now leaves such stops out of every trip (`Locator.onMap`).
+- **Vehicle reports that lag behind:** a vehicle sometimes reports standing a station or more back from where its stops say it is (an E reported back at Canal St after Spring St; a D's report stuck at Bedford Park Blvd for minutes as its stops moved on). The dot, already ahead, was moved back. When the report can't be squared with the stops, the dot's own station settles it. And a dot standing on the track of the train's current hop (the E at Spring St, when the feed switched it to Canal St to W 4 St) carries on from there.
+- **Two trains with one trip code:** a regular A and a supplementary one (067300_A..N55R and 067300_A..N20X002) shared a code, so the time-lapse merged their histories into one train zigzagging between them. One rule now keys both the motion and the history (`Trip.keys`): the trip whose ID sorts first keeps the code.
+
+On that recording, the replay then had no jumps, glides cut short or glides off the track; what's left is the feed's own doing (a train first seen after it has already set off, whose waiting dot fades across to it; a train the feed moves several stations at once; a train flapping in and out of the feed at New Lots Av). The time-lapse over it had no problems at all.
+
 The station matching (§4) also separates stations that ended up on one circle group with a station they don't transfer to (for example, every Brighton line station had been matched one circle off), and applies `MAP_FIXES` for the few it still gets wrong. A fix can also place a stop that has no circle at all: Aqueduct Racetrack, shown on the paper map only as a one-way-stop arrow. `--path-report` lists the remaining straight hops and draws them over the map.
 
 The maps are redrawn from the official PDF's own drawing instructions (`mtamap/pdfdraw.py`, `mtamap/style.py`), so they follow it closely:
@@ -229,6 +251,8 @@ mta-screensaver/
 │   ├── gtfs_subway.zip        MTA static schedule
 │   ├── subway_diagram.pdf     official MTA map (downloaded again when over 30 days old)
 │   ├── mta_stations.csv       data.ny.gov station list (uptown/downtown labels, boroughs)
+│   ├── recordings/            live feeds recorded for the motion check (tools/record_feeds.sh)
+│   ├── check/                 the motion check's latest results and its reference (tools/check.sh)
 │   └── *.png                  snapshots from the notebook
 ├── export/                    written by §8; bundled into the Swift app at build time
 │   ├── map_black.pdf          the recolored map (black land, dark water and parks); 1 PDF point = 1 map unit (1656 × 1978)
@@ -247,6 +271,8 @@ mta-screensaver/
 │   ├── make_icons.swift       draws the app icons (preview app and sandbox)
 │   ├── setup.sh               one command from a fresh copy to an installed screensaver (Python, notebook, build)
 │   ├── install_apps.sh        builds the preview app and the sandbox and installs them in ~/Applications
+│   ├── check.sh               the motion check: line runs and every recording replayed, against the saved results
+│   ├── record_feeds.sh        records the live feeds into data/recordings/ for the check
 │   ├── install_saver.sh       builds the screensaver and installs it in ~/Library/Screen Savers
 │   ├── compare_swift_python.py  checks Swift places every train exactly where the notebook does
 │   ├── test_saver.swift       loads the built screensaver as macOS does, runs it, measures CPU and memory
@@ -393,6 +419,7 @@ cd ~/mta-screensaver/swift && APP=build/DerivedData/Build/Products/Release/Subwa
 | `$APP --time-lapse-report --record 420 --seconds 60` | Records live history for 7 minutes, replays it, and checks every glide starts where its dot is |
 | `$APP --path-audit --seconds 180` | Runs live motion and reports glides off the drawn track, position jumps, fades, short sideways moves (with what the feed said about each train and why the planner moved it), rerouted hops and the slowest glides |
 | `$APP --path-report out` | Checks the track every hop follows; writes `out.png` with straight hops in red |
+| `$APP --replay ../data/recordings/NAME [--time-lapse] [--follow TRIP]` | Replays a recording through the motion (or the time-lapse) and checks every train's moves (see The motion check) |
 | `$APP --line-runs --png out` | Runs one train along every stop pattern of every line and checks every move its dot makes (see Line runs); `out/` gets a map per route and a close-up of each problem |
 | `$APP --picker-snapshot out.png --line A` | Renders the home-station picker (optionally browsing one line) |
 | `swiftc -O tools/test_saver.swift -o /tmp/test_saver && /tmp/test_saver swift/build/DerivedData/Build/Products/Release/SubwaySaver.saver /tmp/saver` | Loads the built screensaver as macOS does, runs it on live data, renders it, measures CPU, and checks it stops on `willstop` |
